@@ -1,4 +1,6 @@
 {
+  // extends inherits tsconfig.json's rootDir: "src". Including test/ under
+  // that root fails with TS6059, so rootDir is overridden to "." here.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,

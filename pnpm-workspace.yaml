@@ -1,2 +1,6 @@
+# Without this, a clean non-interactive `pnpm install` under pnpm 11.18.0
+# fails with ERR_PNPM_IGNORED_BUILDS. esbuild's postinstall script is a
+# fallback; pnpm resolves the platform-specific @esbuild/* package instead,
+# so the script is not needed.
 allowBuilds:
   esbuild: false
