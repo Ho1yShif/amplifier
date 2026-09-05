@@ -10,9 +10,11 @@ A Render cron job runs every 30 minutes and dispatches `amplifier.checkPosts` on
 
 1. Calls `typefully.listPublished` for published drafts in the configured social set.
 2. Keeps the drafts published in the last 90 minutes.
-3. Claims each draft id in Render Key Value, so each post is announced once.
-4. Groups drafts published close together on different platforms into one note.
-5. Posts the note through `slack.postMessage`.
+3. Drops the drafts Render Key Value already records as announced.
+4. Groups the rest, when they were published close together on different platforms, into one note.
+5. Takes a 5-minute lock per draft, posts the note through `slack.postMessage`, then records each draft as announced for 30 days.
+
+Dedupe is per draft, not per note, so a LinkedIn post that arrives after its X twin was announced still gets its own note. The announced marker is written after Slack accepts the note, so a run that dies mid-announcement loses its lock within 5 minutes and the next run retries.
 
 ## Local development
 
@@ -30,9 +32,9 @@ render workflows start amplifier.checkPosts --local --input='[{}]'
 
 ## Deployment
 
-1. Create a Workflow service in the Render Dashboard from this repo, with build `pnpm install && pnpm build` and start `node dist/main.js`. Note its slug.
-2. Apply `render.yaml` to create the cron job and the Key Value instance. Set `RENDER_API_KEY` and confirm `WORKFLOW_SLUG` matches the slug from step 1.
-3. On the Workflow service, set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, `SLACK_BOT_TOKEN`, `SLACK_CHANNEL`, and `REDIS_URL` (the `amplifier-kv` internal connection string).
+1. Create a Workflow service in the Render Dashboard from this repo, with build `pnpm install && pnpm build` and start `node dist/main.js`. Put it in project `amplifier`, environment `Production`, region Oregon, the same as the services in `render.yaml`. The Key Value instance is reachable only over the private network within its own environment, so a Workflow service anywhere else fails to connect. Note the service's slug.
+2. Apply `render.yaml` to create the cron job and the Key Value instance. Set `RENDER_API_KEY`, and set `WORKFLOW_SLUG` to the slug from step 1.
+3. On the Workflow service, set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, `SLACK_BOT_TOKEN`, `SLACK_CHANNEL`, `DRY_RUN=true`, and `REDIS_URL` (the `amplifier-kv` internal connection string).
 4. Leave `DRY_RUN=true` for a couple of cron runs and read the Workflow logs.
 5. Set `DRY_RUN=false`.
 

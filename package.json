@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.18.0",
   "description": "Posts an amplify note to Slack when a Render post goes live on X or LinkedIn.",
   "scripts": {
     "dev": "tsx src/main.ts",

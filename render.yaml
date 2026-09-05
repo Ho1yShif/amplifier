@@ -27,7 +27,8 @@ projects:
             plan: starter
             region: oregon
             maxmemoryPolicy: noeviction
-            # Reachable only over the private network.
+            # Reachable only over the private network, so the Workflow service
+            # must sit in this same project, environment, and region.
             ipAllowList: []
 
         envVarGroups:
@@ -37,8 +38,11 @@ projects:
               # SLACK_BOT_TOKEN, and REDIS_URL live on the Workflow service.
               - key: RENDER_API_KEY
                 sync: false
+              # The Workflow service is created by hand, so its slug is not known
+              # here. Enter it in the dashboard; a literal value would overwrite
+              # that on the next Blueprint apply.
               - key: WORKFLOW_SLUG
-                value: amplifier
+                sync: false
               - key: CRON_TASK
                 value: amplifier.checkPosts
               - key: CRON_INPUT
