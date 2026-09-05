@@ -4,7 +4,7 @@
 
 **Goal:** When a Render post goes live on X or LinkedIn, post one templated amplify note to a Slack channel.
 
-**Architecture:** A Render Workflow service registers `amplifier.checkPosts`. A Render cron job dispatches that task every 30 minutes through `@render-lab/triggers`. The task reads published drafts from the Typefully API, keeps the ones published inside a lookback window, claims each draft id in Render Key Value so it is announced once, groups co-published posts into a single note, and posts through `slack.postMessage`.
+**Architecture:** A Render Workflow service registers `amplifier.checkPosts`. A Render cron job dispatches that task every 30 minutes through `@render-lab/triggers`. The task reads published drafts from the Typefully API, keeps the ones published inside a lookback window, drops the drafts Render Key Value already records as announced, groups the rest of the co-published posts into a single note, and posts through `slack.postMessage`.
 
 **Tech Stack:** Node 22.12, TypeScript 6 (NodeNext), Vitest 4, `@renderinc/sdk@1.0.0` Workflows SDK, and the published `@render-lab/*` task packages: `tasks-slack@0.3.0`, `tasks-render-kv@0.3.0`, `tasks-core@0.3.0`, `triggers@0.2.0`, `test-utils@0.1.0`.
 

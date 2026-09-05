@@ -31,9 +31,9 @@ export interface AmplifierConfig {
  * DRY_RUN defaults to true: the first deploy logs the note it would post and
  * writes nothing to Slack unless DRY_RUN is explicitly "false".
  *
- * The lookback default of 90 minutes is deliberately wider than the 30-minute
- * cron schedule, so one skipped run still catches up. The Key Value claim makes
- * the overlap safe.
+ * The lookback default of 90 minutes is wider than the 30-minute cron
+ * schedule, so one skipped run still catches up. The announced marker in Key
+ * Value keeps the overlapping runs from re-posting what is already out.
  */
 export function loadConfig(
   input: CheckPostsInput = {},

@@ -14,7 +14,9 @@ A Render cron job runs every 30 minutes and dispatches `amplifier.checkPosts` on
 4. Groups the rest, when they were published close together on different platforms, into one note.
 5. Takes a 5-minute lock per draft, posts the note through `slack.postMessage`, then records each draft as announced for 30 days.
 
-Dedupe is per draft, not per note, so a LinkedIn post that arrives after its X twin was announced still gets its own note. The announced marker is written after Slack accepts the note, so a run that dies mid-announcement loses its lock within 5 minutes and the next run retries.
+Dedupe is per draft, not per note, so a LinkedIn post that arrives after its X twin was announced still gets its own note.
+
+Delivery is at least once. The announced marker is written after Slack accepts the note, so a run that dies in the gap between the two loses its lock within 5 minutes and the next run posts the same note again. The design accepts a duplicate note so that no note is lost.
 
 ## Local development
 

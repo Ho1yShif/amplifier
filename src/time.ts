@@ -2,7 +2,11 @@
 // matches time order when every timestamp uses the same UTC format. Compare
 // parsed milliseconds instead, and keep the string for display.
 
-/** Milliseconds for an ISO 8601 timestamp. An unparseable value sorts last. */
+/**
+ * Milliseconds for an ISO 8601 timestamp. An unparseable value compares greater
+ * than every real timestamp, so it goes last in an oldest-first sort and first
+ * in a newest-first one.
+ */
 export function timeMs(iso: string): number {
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? ms : Number.POSITIVE_INFINITY;
