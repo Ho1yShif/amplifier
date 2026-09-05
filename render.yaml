@@ -1,0 +1,45 @@
+# Blueprint for the amplifier trigger layer: the cron service that starts
+# workflow runs, plus the Key Value instance that records which posts have
+# already been announced. The Workflow service itself is created separately
+# because Blueprints don't support Workflows yet.
+#
+# Order: create the Workflow service, apply this Blueprint, then copy the
+# amplifier-kv internal connection string into the Workflow service's REDIS_URL.
+projects:
+  - name: amplifier
+    environments:
+      - name: Production
+        services:
+          - type: cron
+            name: amplifier-cron
+            runtime: node
+            plan: starter
+            region: oregon
+            schedule: "*/30 * * * *"
+            buildCommand: pnpm install && pnpm build
+            startCommand: node dist/cron-trigger.js
+            autoDeployTrigger: commit
+            envVars:
+              - fromGroup: amplifier-triggers
+
+          - type: keyvalue
+            name: amplifier-kv
+            plan: starter
+            region: oregon
+            maxmemoryPolicy: noeviction
+            # Reachable only over the private network.
+            ipAllowList: []
+
+        envVarGroups:
+          - name: amplifier-triggers
+            envVars:
+              # The cron service only starts runs. TYPEFULLY_API_KEY,
+              # SLACK_BOT_TOKEN, and REDIS_URL live on the Workflow service.
+              - key: RENDER_API_KEY
+                sync: false
+              - key: WORKFLOW_SLUG
+                value: amplifier
+              - key: CRON_TASK
+                value: amplifier.checkPosts
+              - key: CRON_INPUT
+                value: "{}"

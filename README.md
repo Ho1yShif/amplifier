@@ -1,0 +1,59 @@
+# Amplifier
+
+Amplifier posts one note to Slack when a Render post goes live on X or LinkedIn. The note asks the team to amplify it.
+
+It reads published drafts from Typefully, which is where the Render X and LinkedIn accounts are scheduled. A post sent to both platforms produces one note with both links.
+
+## How it works
+
+A Render cron job runs every 30 minutes and dispatches `amplifier.checkPosts` on the amplifier Workflow service. That task:
+
+1. Calls `typefully.listPublished` for published drafts in the configured social set.
+2. Keeps the drafts published in the last 90 minutes.
+3. Claims each draft id in Render Key Value, so each post is announced once.
+4. Groups drafts published close together on different platforms into one note.
+5. Posts the note through `slack.postMessage`.
+
+## Local development
+
+```bash
+pnpm install
+pnpm test          # unit tests, no secrets needed
+cp .env.example .env
+render workflows dev -- pnpm dev
+# in another terminal:
+render workflows tasks list --local
+render workflows start amplifier.checkPosts --local --input='[{}]'
+```
+
+`DRY_RUN=true` is the default, so a local run logs the note it would post and writes nothing to Slack.
+
+## Deployment
+
+1. Create a Workflow service in the Render Dashboard from this repo, with build `pnpm install && pnpm build` and start `node dist/main.js`. Note its slug.
+2. Apply `render.yaml` to create the cron job and the Key Value instance. Set `RENDER_API_KEY` and confirm `WORKFLOW_SLUG` matches the slug from step 1.
+3. On the Workflow service, set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, `SLACK_BOT_TOKEN`, `SLACK_CHANNEL`, and `REDIS_URL` (the `amplifier-kv` internal connection string).
+4. Leave `DRY_RUN=true` for a couple of cron runs and read the Workflow logs.
+5. Set `DRY_RUN=false`.
+
+## Configuration
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `TYPEFULLY_API_KEY` | — | Required. Typefully Settings > Integrations. |
+| `TYPEFULLY_SOCIAL_SET_ID` | — | Required. `GET /v2/social-sets` lists them. |
+| `SLACK_BOT_TOKEN` | — | Required for `SLACK_CHANNEL` to be honored. |
+| `SLACK_CHANNEL` | — | Channel the note goes to. |
+| `REDIS_URL` | — | Required. The `amplifier-kv` internal connection string. |
+| `DRY_RUN` | `true` | Set to `false` to post to Slack. |
+| `AMPLIFIER_LOOKBACK_MINUTES` | `90` | Wider than the 30-minute schedule, so a skipped run catches up. |
+| `AMPLIFIER_GROUP_WINDOW_MINUTES` | `10` | How close two drafts must be to share a note. |
+| `AMPLIFIER_SEEN_TTL_DAYS` | `30` | How long a draft stays marked as announced. |
+| `AMPLIFIER_LIMIT` | `25` | Drafts pulled per run. |
+| `AMPLIFIER_CALL_TO_ACTION` | see below | The ask at the end of the note. |
+
+Default call to action: "Give it a like and a repost when you get a minute."
+
+## Adding X or LinkedIn directly
+
+Everything that knows Typefully's field names lives in `src/typefully/`. `src/amplifier/` works only on the `PublishedPost` DTO, so a direct X or LinkedIn source means adding a sibling directory with a second task shaped like `typefully.listPublished` and merging its posts in `checkPosts.ts`.
