@@ -55,7 +55,7 @@ export function typefullyPort(
   return {
     async listPublishedDrafts(socialSetId, limit) {
       const body = await client.call(
-        `/v2/social-sets/${socialSetId}/drafts?status=published&limit=${limit}`,
+        `/v2/social-sets/${encodeURIComponent(socialSetId)}/drafts?status=published&limit=${limit}`,
       );
       return readDrafts(body);
     },

@@ -99,6 +99,15 @@ describe("typefullyPort", () => {
     expect(init?.headers?.authorization ?? init?.headers?.Authorization).toBe("Bearer key_1");
   });
 
+  it("escapes the social set id in the path", async () => {
+    const fetchImpl = fakeFetch({ results: [] });
+    const port = typefullyPort({ env: { TYPEFULLY_API_KEY: "key_1" }, fetchImpl });
+
+    await port.listPublishedDrafts("set/1 2", 25);
+
+    expect(fetchImpl.mock.calls[0]?.[0]).toContain("/v2/social-sets/set%2F1%202/drafts");
+  });
+
   it("reads a bare array response too", async () => {
     const port = typefullyPort({
       env: { TYPEFULLY_API_KEY: "key_1" },

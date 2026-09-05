@@ -218,6 +218,23 @@ describe("checkPostsImpl", () => {
     expect(result.notes[0]?.draftIds).toEqual(["1"]);
   });
 
+  it("warns when the response fills the limit and nothing is in the window", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { ctx } = runCtx({
+      "typefully.listPublished": () => ({
+        posts: [
+          post("1", "2026-09-01T10:00:00Z", ["x"]),
+          post("2", "2026-09-01T11:00:00Z", ["x"]),
+        ],
+      }),
+    });
+
+    await checkPostsImpl(ctx, { ...BASE, limit: 2 });
+
+    expect(warn.mock.calls[0]?.[0]).toContain("truncated");
+    warn.mockRestore();
+  });
+
   it("passes the social set and limit to typefully.listPublished", async () => {
     const { ctx, calls } = runCtx();
     await checkPostsImpl(ctx, { ...BASE, limit: 7 });

@@ -53,6 +53,13 @@ export async function checkPostsImpl(
   });
 
   const recent = withinWindow(posts, nowMs, config.lookbackMinutes);
+  if (posts.length >= config.limit && recent.length === 0) {
+    console.warn(
+      `[amplifier] Typefully returned ${posts.length} posts, the requested limit, and none ` +
+        `is inside the ${config.lookbackMinutes}-minute lookback. The response may be ` +
+        `truncated to the oldest published drafts. Raise AMPLIFIER_LIMIT.`,
+    );
+  }
 
   // Dedupe per draft, before grouping: which drafts share a note depends on
   // what this run's response held, so the group is not a stable identity.
