@@ -5,7 +5,13 @@ import { loadConfig, type CheckPostsInput } from "../config.js";
 import { listPublished } from "../typefully/listPublished.js";
 import type { Platform } from "../typefully/types.js";
 import { groupPosts } from "./group.js";
-import { announcedDraftIds, claimGroup, markAnnounced, releaseGroup } from "./seen.js";
+import {
+  announcedDraftIds,
+  claimGroup,
+  isClaimed,
+  markAnnounced,
+  releaseGroup,
+} from "./seen.js";
 import { notePlatforms, renderNote } from "./template.js";
 import { withinWindow } from "./window.js";
 
@@ -77,11 +83,12 @@ export async function checkPostsImpl(
   let skipped = announced.size;
 
   for (const group of groups) {
-    const claims = await claimGroup(ctx, group, runToken);
-    if (claims === null) {
+    const outcome = await claimGroup(ctx, group, runToken);
+    if (!isClaimed(outcome)) {
       skipped += 1;
       continue;
     }
+    const { claims } = outcome;
 
     const message = renderNote(group, {
       ...(config.slackChannel ? { channel: config.slackChannel } : {}),
@@ -99,14 +106,15 @@ export async function checkPostsImpl(
     let delivered = false;
     try {
       ({ delivered } = await ctx.run(postMessage, message));
+      if (delivered) {
+        await markAnnounced(ctx, group.draftIds, config.seenTtlSeconds);
+      }
     } catch (err) {
       await releaseGroup(ctx, claims);
       throw err;
     }
 
-    if (delivered) {
-      await markAnnounced(ctx, group.draftIds, config.seenTtlSeconds);
-    } else {
+    if (!delivered) {
       // Slack fell back to the console because no bot token and no webhook URL
       // is set. Nothing reached the channel, so leave the drafts unannounced.
       console.error(

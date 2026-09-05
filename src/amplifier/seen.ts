@@ -45,19 +45,41 @@ export async function announcedDraftIds(
 }
 
 /**
+ * Why a group was not claimed.
+ *
+ * `announced` means an earlier run finished announcing that draft while this
+ * run was reading the markers. `in-flight` means another run holds the lock and
+ * is announcing that draft right now. Both mean this run must not post the
+ * group, and both leave every unannounced draft in it without a marker, so the
+ * next run regroups what is left and announces it.
+ */
+export interface ClaimRefusal {
+  reason: "announced" | "in-flight";
+  draftId: string;
+}
+
+export type ClaimOutcome = { claims: Claim[] } | ClaimRefusal;
+
+/** Whether `claimGroup` handed back locks. */
+export function isClaimed(outcome: ClaimOutcome): outcome is { claims: Claim[] } {
+  return "claims" in outcome;
+}
+
+/**
  * Take an in-flight lock on every draft in the group, or nothing.
  *
- * Returns the claims on success and `null` when another run holds a lock and is
- * announcing one of these drafts right now. `token` is unique per run, so a
- * failed `kv.lock` always means someone else. Locks already taken are released
- * before giving up.
+ * `token` is unique per run, so a failed `kv.lock` always means another run.
+ * The announced marker is re-read after each lock is acquired, because
+ * `announcedDraftIds` runs before the first lock attempt and another run can
+ * announce the draft in between. Locks already taken are released before giving
+ * up.
  */
 export async function claimGroup(
   ctx: TaskContext,
   group: PostGroup,
   token: string,
   ttlSeconds: number = INFLIGHT_TTL_SECONDS,
-): Promise<Claim[] | null> {
+): Promise<ClaimOutcome> {
   const claims: Claim[] = [];
 
   for (const draftId of group.draftIds) {
@@ -65,12 +87,18 @@ export async function claimGroup(
     const { acquired } = await ctx.run(lock, { key, token, ttlSeconds });
     if (!acquired) {
       await releaseGroup(ctx, claims);
-      return null;
+      return { reason: "in-flight", draftId };
     }
     claims.push({ key, token });
+
+    const { value } = await ctx.run(kvGet, { key: seenKey(draftId) });
+    if (value !== null) {
+      await releaseGroup(ctx, claims);
+      return { reason: "announced", draftId };
+    }
   }
 
-  return claims;
+  return { claims };
 }
 
 /**
@@ -79,6 +107,10 @@ export async function claimGroup(
  * Call this only after `slack.postMessage` reports the note delivered. The
  * marker is separate from the in-flight lock, so a lock left behind by a
  * crashed run never reads as a completed announcement.
+ *
+ * One `kv.set` per draft, so a failure part way through leaves some drafts
+ * marked and some not. The caller releases the locks and the next run announces
+ * the unmarked drafts as their own group.
  */
 export async function markAnnounced(
   ctx: TaskContext,

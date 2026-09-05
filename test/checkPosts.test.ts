@@ -377,6 +377,44 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
     expect(slack).toHaveLength(2);
   });
 
+  it("posts once when a second run's marker read precedes the first run's announce cycle", async () => {
+    const kv = kvStore(Date.parse("2026-09-04T15:45:00Z"));
+    const slack: string[][] = [];
+    const posts = [post("A", "2026-09-04T15:30:00Z", ["x"])];
+
+    // Run B reads the announced markers, finds none, and only then reaches its
+    // first kv.lock. Run A does its whole announce cycle in that gap.
+    let interleaved = false;
+    const lockHandler = kv.handlers["kv.lock"];
+    const handlers: Record<string, (input: any) => unknown> = {
+      ...kv.handlers,
+      "kv.lock": async (input: any) => {
+        if (!interleaved) {
+          interleaved = true;
+          await checkPostsImpl(runAt(kv, posts, slack).ctx, {
+            ...BASE,
+            now: "2026-09-04T15:45:00Z",
+          });
+        }
+        return lockHandler?.(input);
+      },
+    };
+    handlers["typefully.listPublished"] = () => ({ posts });
+    handlers["slack.postMessage"] = (input: any) => {
+      slack.push([String(input.markdown)]);
+      return { delivered: true };
+    };
+
+    const runB = await checkPostsImpl(runCtx(handlers).ctx, {
+      ...BASE,
+      now: "2026-09-04T15:45:00Z",
+    });
+
+    expect(slack).toHaveLength(1);
+    expect(runB.notified).toBe(0);
+    expect(runB.skipped).toBe(1);
+  });
+
   it("retries after a run crashes between the lock and the Slack post", async () => {
     const kv = kvStore(Date.parse("2026-09-04T15:45:00Z"));
     const slack: string[][] = [];

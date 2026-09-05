@@ -5,6 +5,7 @@ import {
   announcedDraftIds,
   claimGroup,
   inflightKey,
+  isClaimed,
   markAnnounced,
   releaseGroup,
   seenKey,
@@ -65,38 +66,60 @@ describe("announcedDraftIds", () => {
 });
 
 describe("claimGroup", () => {
+  const unannounced = { "kv.get": () => ({ value: null }) };
+
   it("locks every draft in the group with this run's token", async () => {
-    const { ctx, calls } = kvCtx({ "kv.lock": () => ({ acquired: true }) });
+    const { ctx, calls } = kvCtx({ "kv.lock": () => ({ acquired: true }), ...unannounced });
 
-    const claims = await claimGroup(ctx, group, TOKEN);
+    const outcome = await claimGroup(ctx, group, TOKEN);
 
-    expect(claims).toEqual([
+    expect(isClaimed(outcome) && outcome.claims).toEqual([
       { key: "amplifier:inflight:1", token: TOKEN },
       { key: "amplifier:inflight:2", token: TOKEN },
     ]);
     expect(calls[0]?.input.ttlSeconds).toBe(INFLIGHT_TTL_SECONDS);
   });
 
-  it("returns null when another run holds a live lock", async () => {
-    const { ctx } = kvCtx({ "kv.lock": () => ({ acquired: false }) });
-    expect(await claimGroup(ctx, group, TOKEN)).toBeNull();
+  it("refuses the group when another run holds a live lock", async () => {
+    const { ctx } = kvCtx({ "kv.lock": () => ({ acquired: false }), ...unannounced });
+    expect(await claimGroup(ctx, group, TOKEN)).toEqual({ reason: "in-flight", draftId: "1" });
   });
 
-  it("does not read the stored token, so a lapsed lock is simply re-acquired", async () => {
-    const { ctx, calls } = kvCtx({ "kv.lock": () => ({ acquired: true }) });
+  it("refuses the group when a marker appears after the lock is acquired", async () => {
+    // The window this closes: announcedDraftIds ran before the lock, so another
+    // run can finish announcing the draft in between.
+    const { ctx, calls } = kvCtx({
+      "kv.lock": () => ({ acquired: true }),
+      "kv.get": (input) => ({ value: input.key === "amplifier:seen:2" ? "announced" : null }),
+      "kv.unlock": () => ({ released: true }),
+    });
+
+    expect(await claimGroup(ctx, group, TOKEN)).toEqual({ reason: "announced", draftId: "2" });
+    expect(calls.filter((c) => c.name === "kv.unlock").map((c) => c.input.key)).toEqual([
+      "amplifier:inflight:1",
+      "amplifier:inflight:2",
+    ]);
+  });
+
+  it("re-reads the marker, not the lock's own value", async () => {
+    const { ctx, calls } = kvCtx({ "kv.lock": () => ({ acquired: true }), ...unannounced });
 
     await claimGroup(ctx, group, TOKEN);
 
-    expect(calls.filter((c) => c.name === "kv.get")).toEqual([]);
+    expect(calls.filter((c) => c.name === "kv.get").map((c) => c.input.key)).toEqual([
+      "amplifier:seen:1",
+      "amplifier:seen:2",
+    ]);
   });
 
   it("releases the locks it took before giving up", async () => {
     const { ctx, calls } = kvCtx({
       "kv.lock": (input) => ({ acquired: input.key === "amplifier:inflight:1" }),
       "kv.unlock": () => ({ released: true }),
+      ...unannounced,
     });
 
-    expect(await claimGroup(ctx, group, TOKEN)).toBeNull();
+    expect(await claimGroup(ctx, group, TOKEN)).toEqual({ reason: "in-flight", draftId: "2" });
     expect(calls.filter((c) => c.name === "kv.unlock").map((c) => c.input.key)).toEqual([
       "amplifier:inflight:1",
     ]);
