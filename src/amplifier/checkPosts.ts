@@ -41,6 +41,9 @@ export async function checkPostsImpl(
 ): Promise<CheckPostsResult> {
   const config = loadConfig(input);
   const nowMs = input.now ? Date.parse(input.now) : Date.now();
+  if (!Number.isFinite(nowMs)) {
+    throw new Error(`input.now is not a parseable timestamp: ${input.now}`);
+  }
 
   // Unique per invocation and stable within it. The SDK 1.0 TaskContext exposes
   // no run id, and the in-flight lock only has to tell this run's lock from

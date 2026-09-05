@@ -235,6 +235,13 @@ describe("checkPostsImpl", () => {
     warn.mockRestore();
   });
 
+  it("throws on a now that will not parse", async () => {
+    const { ctx } = runCtx();
+    await expect(checkPostsImpl(ctx, { ...BASE, now: "last tuesday" })).rejects.toThrow(
+      "not a parseable timestamp",
+    );
+  });
+
   it("passes the social set and limit to typefully.listPublished", async () => {
     const { ctx, calls } = runCtx();
     await checkPostsImpl(ctx, { ...BASE, limit: 7 });
