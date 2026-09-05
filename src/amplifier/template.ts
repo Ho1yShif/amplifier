@@ -1,4 +1,5 @@
 import type { PostMessageInput } from "@render-lab/tasks-slack";
+import { compareTime } from "../time.js";
 import type { Platform, PlatformLink } from "../typefully/types.js";
 import type { PostGroup } from "./group.js";
 
@@ -23,7 +24,7 @@ function orderedLinks(group: PostGroup): PlatformLink[] {
   const byPlatform = new Map<Platform, PlatformLink>();
   for (const link of group.links) {
     const seen = byPlatform.get(link.platform);
-    if (!seen || link.publishedAt.localeCompare(seen.publishedAt) < 0) {
+    if (!seen || compareTime(link.publishedAt, seen.publishedAt) < 0) {
       byPlatform.set(link.platform, link);
     }
   }

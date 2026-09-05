@@ -1,3 +1,4 @@
+import { compareTime } from "../time.js";
 import type { PlatformLink, PublishedPost } from "../typefully/types.js";
 
 /** One Slack note's worth of published posts. */
@@ -25,7 +26,7 @@ export interface PostGroup {
  */
 export function groupPosts(posts: PublishedPost[], groupWindowMinutes: number): PostGroup[] {
   const windowMs = groupWindowMinutes * 60_000;
-  const ordered = [...posts].sort((a, b) => a.publishedAt.localeCompare(b.publishedAt));
+  const ordered = [...posts].sort((a, b) => compareTime(a.publishedAt, b.publishedAt));
 
   const groups: PostGroup[] = [];
   let current: PostGroup | undefined;

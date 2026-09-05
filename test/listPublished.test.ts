@@ -48,6 +48,20 @@ describe("listPublishedImpl", () => {
     expect(deps.typefully.listPublishedDrafts).toHaveBeenCalledWith("set_9", 25);
   });
 
+  it("orders posts newest first by parsed time, not string order", async () => {
+    const drafts: TypefullyDraft[] = [
+      { id: "b", x_post_published_at: "2026-09-04T15:30:00Z" },
+      // Same instant as 15:00Z, written with an offset. String order would put
+      // this first of the three.
+      { id: "a", x_post_published_at: "2026-09-04T17:00:00+02:00" },
+      { id: "c", x_post_published_at: "2026-09-04T16:00:00.500Z" },
+    ];
+
+    const result = await listPublishedImpl(fakeCtx(), { socialSetId: "set_1" }, fakeDeps(drafts));
+
+    expect(result.posts.map((p) => p.draftId)).toEqual(["c", "b", "a"]);
+  });
+
   it("throws a clear error without a social set id", async () => {
     // stubEnv so a TYPEFULLY_SOCIAL_SET_ID in the developer's shell can't hide the error.
     vi.stubEnv("TYPEFULLY_SOCIAL_SET_ID", "");
@@ -91,6 +105,14 @@ describe("typefullyPort", () => {
       fetchImpl: fakeFetch([draft]),
     });
     expect(await port.listPublishedDrafts("set_1", 25)).toEqual([draft]);
+  });
+
+  it("returns no drafts for a body it does not recognize", async () => {
+    const port = typefullyPort({
+      env: { TYPEFULLY_API_KEY: "key_1" },
+      fetchImpl: fakeFetch({ data: { drafts: [draft] } }),
+    });
+    expect(await port.listPublishedDrafts("set_1", 25)).toEqual([]);
   });
 
   it("fails on first use when the key is missing", async () => {

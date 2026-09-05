@@ -1,3 +1,4 @@
+import { compareTime } from "../time.js";
 import type { Platform, PlatformLink, PublishedPost, TypefullyDraft } from "./types.js";
 
 /** Per-platform field names, so the mapper reads both platforms one way. */
@@ -31,7 +32,7 @@ export function mapDraft(raw: TypefullyDraft): PublishedPost | null {
   }
   if (links.length === 0) return null;
 
-  links.sort((a, b) => a.publishedAt.localeCompare(b.publishedAt));
+  links.sort((a, b) => compareTime(a.publishedAt, b.publishedAt));
   const first = links[0];
   if (!first) return null;
 

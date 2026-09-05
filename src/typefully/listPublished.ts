@@ -1,4 +1,5 @@
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
+import { compareTime } from "../time.js";
 import { defaultDeps, type TypefullyDeps } from "./client.js";
 import { mapDraft } from "./map.js";
 import { TYPEFULLY_RETRY } from "./retry.js";
@@ -22,7 +23,7 @@ export async function listPublishedImpl(
   const posts = drafts
     .map(mapDraft)
     .filter((p): p is PublishedPost => p !== null)
-    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+    .sort((a, b) => compareTime(b.publishedAt, a.publishedAt));
 
   return { posts };
 }
