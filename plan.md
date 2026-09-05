@@ -24,6 +24,8 @@
 
 ## Design Decisions
 
+**Correction after the final review (announce-once).** The "Announce-once state" decision below, and Task 7 and Task 9 as written, produce duplicate announcements. One Key Value value cannot record both "in flight by me" and "already announced": a run that posted and a run that crashed before posting left identical state, so the next cron run adopted the claim and posted again. Deciding dedupe per group made it worse, because group membership depends on what the API returned on that run, so a draft that joined an already-announced group was dropped. The shipped code splits the two records. `amplifier:seen:<draftId>` is a plain marker written with `kv.set` after Slack accepts the note, with the 30-day TTL. The in-flight lock lives at `amplifier:inflight:<draftId>` with a token unique per invocation and a 5-minute TTL, so a crashed run's lock lapses and the next run retries. `checkPostsImpl` drops already-announced drafts before grouping. Read the code in `src/amplifier/seen.ts` for the current design; the task steps below stay as the historical record.
+
 **Source: Typefully only.** Typefully already publishes to both the Render X and LinkedIn accounts, so one API key covers both. The X API v2 requires a paid tier to read an account's own posts, and LinkedIn organization posts require Community Management API access that goes through a partner review.
 
 **Typefully API v2 facts this plan depends on:**
@@ -1297,6 +1299,13 @@ git commit -m "feat(amplifier): render the amplify note"
 ---
 
 ### Task 7: Announce each post once
+
+> **Corrected after the final review.** The design in this task re-announces every
+> post on each cron run, and drops a draft that joins an already-announced group.
+> `groupToken` is gone. The announced marker and the in-flight lock are now separate
+> keys, dedupe is per draft rather than per group, and the marker is written after
+> the Slack post returns. See the correction note at the top of Design Decisions and
+> `src/amplifier/seen.ts`. The steps below record what was built first.
 
 **Files:**
 - Create: `src/amplifier/seen.ts`
