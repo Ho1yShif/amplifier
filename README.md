@@ -32,6 +32,22 @@ render workflows start amplifier.checkPosts --local --input='[{}]'
 
 `DRY_RUN=true` is the default, so a local run logs the note it would post and writes nothing to Slack.
 
+### End-to-end run with no credentials
+
+`scripts/typefully-stub.ts` stands in for both Typefully and a Slack incoming webhook, so the whole announce-once path runs against a local Key Value with no keys:
+
+```bash
+redis-server &
+pnpm stub &
+pnpm local:run 2
+```
+
+The argument is how many runs to do in a row. Run 1 reports `notified: 2`. Run 2 reports `notified: 0` and `skipped: 2`, which is the announce-once guarantee holding across runs. `redis-cli --scan --pattern 'amplifier:*'` should then show two `amplifier:seen:` markers and no `amplifier:inflight:` locks.
+
+Edit the drafts in the stub to cover other cases. Reversing them puts the oldest first, which is the failure the deployment checks below are looking for: `limit` truncates the response to the oldest drafts, every run reports `inWindow: 0`, and nothing posts without erroring.
+
+This runs every task in one process with no retries and no timeouts, so it checks the wiring and the Key Value state, not durability. It also cannot tell you the real Typefully response shape, which is what the first deployment check is for.
+
 ## Deployment
 
 1. Create a Workflow service in the Render Dashboard from this repo, with build `pnpm install && pnpm build` and start `node dist/main.js`. Put it in project `amplifier`, environment `Production`, region Oregon, the same as the services in `render.yaml`. The Key Value instance is reachable only over the private network within its own environment, so a Workflow service anywhere else fails to connect. Note the service's slug.
@@ -46,6 +62,7 @@ render workflows start amplifier.checkPosts --local --input='[{}]'
 | -------------------------------- | --------- | ----- | -------------------------------------------------------------------------------- |
 | `TYPEFULLY_API_KEY`              | —         | —     | Required. Typefully Settings > Integrations.                                     |
 | `TYPEFULLY_SOCIAL_SET_ID`        | —         | —     | Required. `GET /v2/social-sets` lists them.                                      |
+| `TYPEFULLY_BASE_URL`             | Typefully | —     | Local stub only. The API key goes to whatever host this names.                   |
 | `SLACK_BOT_TOKEN`                | —         | —     | Required for `SLACK_CHANNEL` to be honored.                                      |
 | `SLACK_CHANNEL`                  | —         | —     | Channel the note goes to.                                                        |
 | `REDIS_URL`                      | —         | —     | Required. The `amplifier-kv` internal connection string.                         |
