@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeCtx } from "@render-lab/test-utils";
-import type { TaskDefinition } from "@renderinc/sdk/workflows";
+import { describe, expect, it, vi } from "vitest";
+import type { TaskContext } from "@renderinc/sdk/workflows";
 import { checkPostsImpl } from "../src/amplifier/checkPosts.js";
+import type { CheckPostsInput } from "../src/config.js";
 import type { PublishedPost } from "../src/typefully/types.js";
+import { taskCtx, type TaskHandlers } from "./support/taskCtx.js";
 
 const NOW = "2026-09-04T16:00:00Z";
 
@@ -20,9 +21,8 @@ function post(draftId: string, at: string, platforms: Array<"x" | "linkedin">): 
 }
 
 /** ctx.run dispatched by task name, with sensible defaults per task. */
-function runCtx(overrides: Record<string, (input: any) => unknown> = {}) {
-  const calls: Array<{ name: string; input: any }> = [];
-  const handlers: Record<string, (input: any) => unknown> = {
+function runCtx(overrides: TaskHandlers = {}) {
+  return taskCtx({
     "typefully.listPublished": () => ({ posts: [] }),
     "kv.lock": () => ({ acquired: true }),
     "kv.unlock": () => ({ released: true }),
@@ -30,39 +30,21 @@ function runCtx(overrides: Record<string, (input: any) => unknown> = {}) {
     "kv.set": () => ({ ok: true }),
     "slack.postMessage": () => ({ delivered: true }),
     ...overrides,
-  };
-  const ctx = fakeCtx({
-    run: (async (t: TaskDefinition<any, any>, input: any) => {
-      calls.push({ name: t.name, input });
-      const handler = handlers[t.name];
-      if (!handler) throw new Error(`unexpected task ${t.name}`);
-      return handler(input);
-    }) as any,
   });
-  return { ctx, calls };
 }
 
 const BASE = { now: NOW, dryRun: false, socialSetId: "set_1", slackChannel: "#social" };
 
-describe("checkPostsImpl", () => {
-  beforeEach(() => {
-    // checkPostsImpl calls loadConfig(input) with no env argument, so
-    // process.env is the fallback for anything the input omits. Delete every
-    // AMPLIFIER_* var (and DRY_RUN) so a developer's shell (e.g.
-    // AMPLIFIER_GROUP_WINDOW_MINUTES) can't change these results — loadConfig
-    // then falls back to its own defaults. Every test that asserts on one of
-    // these values passes it explicitly in the input instead.
-    vi.unstubAllEnvs();
-    vi.stubEnv("AMPLIFIER_LIMIT", undefined);
-    vi.stubEnv("AMPLIFIER_LOOKBACK_MINUTES", undefined);
-    vi.stubEnv("AMPLIFIER_GROUP_WINDOW_MINUTES", undefined);
-    vi.stubEnv("AMPLIFIER_SEEN_TTL_DAYS", undefined);
-    vi.stubEnv("AMPLIFIER_CALL_TO_ACTION", undefined);
-    vi.stubEnv("DRY_RUN", undefined);
-    vi.stubEnv("TYPEFULLY_SOCIAL_SET_ID", undefined);
-    vi.stubEnv("SLACK_CHANNEL", undefined);
-  });
+/**
+ * Run checkPostsImpl with an empty environment, which every test wants.
+ * checkPostsImpl takes its environment as an argument, so a developer's shell
+ * cannot reach loadConfig and change a result.
+ */
+function check(ctx: TaskContext, input: CheckPostsInput) {
+  return checkPostsImpl(ctx, input, {});
+}
 
+describe("checkPostsImpl", () => {
   it("posts one note for a cross-posted draft", async () => {
     const { ctx, calls } = runCtx({
       "typefully.listPublished": () => ({
@@ -70,7 +52,7 @@ describe("checkPostsImpl", () => {
       }),
     });
 
-    const result = await checkPostsImpl(ctx, BASE);
+    const result = await check(ctx, BASE);
 
     const posts = calls.filter((c) => c.name === "slack.postMessage");
     expect(posts).toHaveLength(1);
@@ -90,7 +72,7 @@ describe("checkPostsImpl", () => {
       }),
     });
 
-    const result = await checkPostsImpl(ctx, { ...BASE, groupWindowMinutes: 10 });
+    const result = await check(ctx, { ...BASE, groupWindowMinutes: 10 });
 
     expect(calls.filter((c) => c.name === "slack.postMessage")).toHaveLength(1);
     expect(result.notes[0]?.draftIds).toEqual(["1", "2"]);
@@ -103,7 +85,7 @@ describe("checkPostsImpl", () => {
       }),
     });
 
-    const result = await checkPostsImpl(ctx, { ...BASE, lookbackMinutes: 90 });
+    const result = await check(ctx, { ...BASE, lookbackMinutes: 90 });
 
     expect(calls.filter((c) => c.name === "slack.postMessage")).toEqual([]);
     expect(result.inWindow).toBe(0);
@@ -117,7 +99,7 @@ describe("checkPostsImpl", () => {
       "kv.get": () => ({ value: "announced" }),
     });
 
-    const result = await checkPostsImpl(ctx, BASE);
+    const result = await check(ctx, BASE);
 
     expect(calls.filter((c) => c.name === "slack.postMessage")).toEqual([]);
     expect(calls.filter((c) => c.name === "kv.lock")).toEqual([]);
@@ -133,10 +115,49 @@ describe("checkPostsImpl", () => {
       "kv.lock": () => ({ acquired: false }),
     });
 
-    const result = await checkPostsImpl(ctx, BASE);
+    const result = await check(ctx, BASE);
 
     expect(calls.filter((c) => c.name === "slack.postMessage")).toEqual([]);
     expect(result.skipped).toBe(1);
+  });
+
+  it("counts every draft in a group another run is announcing", async () => {
+    const { ctx } = runCtx({
+      "typefully.listPublished": () => ({
+        posts: [
+          post("1", "2026-09-04T15:30:00Z", ["x"]),
+          post("2", "2026-09-04T15:33:00Z", ["linkedin"]),
+        ],
+      }),
+      "kv.lock": () => ({ acquired: false }),
+    });
+
+    const result = await check(ctx, { ...BASE, groupWindowMinutes: 10 });
+
+    // Both drafts went unannounced, so both are skipped. Counting the group as
+    // 1 would report a different number for the same two drafts depending on
+    // whether they were already announced or merely in flight.
+    expect(result.groups).toBe(1);
+    expect(result.skipped).toBe(2);
+  });
+
+  it("reports the Slack failure even when releasing the lock also fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { ctx } = runCtx({
+      "typefully.listPublished": () => ({
+        posts: [post("1", "2026-09-04T15:30:00Z", ["x"])],
+      }),
+      "slack.postMessage": () => {
+        throw new Error("slack down");
+      },
+      "kv.unlock": () => {
+        throw new Error("key value unreachable");
+      },
+    });
+
+    await expect(check(ctx, BASE)).rejects.toThrow("slack down");
+    expect(error.mock.calls[0]?.[0]).toContain("Could not release the in-flight lock");
+    error.mockRestore();
   });
 
   it("marks the drafts announced only after Slack accepts the note", async () => {
@@ -146,7 +167,7 @@ describe("checkPostsImpl", () => {
       }),
     });
 
-    await checkPostsImpl(ctx, BASE);
+    await check(ctx, BASE);
 
     const names = calls.map((c) => c.name);
     expect(names.indexOf("slack.postMessage")).toBeLessThan(names.indexOf("kv.set"));
@@ -163,7 +184,7 @@ describe("checkPostsImpl", () => {
       "slack.postMessage": () => ({ delivered: false }),
     });
 
-    const result = await checkPostsImpl(ctx, BASE);
+    const result = await check(ctx, BASE);
 
     expect(calls.filter((c) => c.name === "kv.set")).toEqual([]);
     expect(calls.filter((c) => c.name === "kv.unlock").map((c) => c.input.key)).toEqual([
@@ -180,7 +201,7 @@ describe("checkPostsImpl", () => {
       }),
     });
 
-    await checkPostsImpl(ctx, BASE);
+    await check(ctx, BASE);
 
     const names = calls.map((c) => c.name);
     expect(names.indexOf("kv.lock")).toBeLessThan(names.indexOf("slack.postMessage"));
@@ -196,7 +217,7 @@ describe("checkPostsImpl", () => {
       },
     });
 
-    await expect(checkPostsImpl(ctx, BASE)).rejects.toThrow("slack down");
+    await expect(check(ctx, BASE)).rejects.toThrow("slack down");
     expect(calls.filter((c) => c.name === "kv.unlock").map((c) => c.input.key)).toEqual([
       "amplifier:inflight:1",
     ]);
@@ -209,7 +230,7 @@ describe("checkPostsImpl", () => {
       }),
     });
 
-    const result = await checkPostsImpl(ctx, { ...BASE, dryRun: true });
+    const result = await check(ctx, { ...BASE, dryRun: true });
 
     expect(calls.filter((c) => c.name === "slack.postMessage")).toEqual([]);
     expect(calls.filter((c) => c.name === "kv.unlock")).toHaveLength(1);
@@ -222,14 +243,11 @@ describe("checkPostsImpl", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { ctx } = runCtx({
       "typefully.listPublished": () => ({
-        posts: [
-          post("1", "2026-09-01T10:00:00Z", ["x"]),
-          post("2", "2026-09-01T11:00:00Z", ["x"]),
-        ],
+        posts: [post("1", "2026-09-01T10:00:00Z", ["x"]), post("2", "2026-09-01T11:00:00Z", ["x"])],
       }),
     });
 
-    await checkPostsImpl(ctx, { ...BASE, limit: 2 });
+    await check(ctx, { ...BASE, limit: 2 });
 
     expect(warn.mock.calls[0]?.[0]).toContain("truncated");
     warn.mockRestore();
@@ -237,14 +255,14 @@ describe("checkPostsImpl", () => {
 
   it("throws on a now that will not parse", async () => {
     const { ctx } = runCtx();
-    await expect(checkPostsImpl(ctx, { ...BASE, now: "last tuesday" })).rejects.toThrow(
+    await expect(check(ctx, { ...BASE, now: "last tuesday" })).rejects.toThrow(
       "not a parseable timestamp",
     );
   });
 
   it("passes the social set and limit to typefully.listPublished", async () => {
     const { ctx, calls } = runCtx();
-    await checkPostsImpl(ctx, { ...BASE, limit: 7 });
+    await check(ctx, { ...BASE, limit: 7 });
     expect(calls[0]).toEqual({
       name: "typefully.listPublished",
       input: { socialSetId: "set_1", limit: 7 },
@@ -253,7 +271,7 @@ describe("checkPostsImpl", () => {
 
   it("reports counts for an empty run", async () => {
     const { ctx } = runCtx();
-    expect(await checkPostsImpl(ctx, BASE)).toEqual({
+    expect(await check(ctx, BASE)).toEqual({
       scanned: 0,
       inWindow: 0,
       groups: 0,
@@ -284,7 +302,7 @@ function kvStore(startMs: number) {
     return entry;
   }
 
-  const handlers: Record<string, (input: any) => unknown> = {
+  const handlers: TaskHandlers = {
     "kv.lock": ({ key, token, ttlSeconds }) => {
       if (live(key)) return { acquired: false };
       store.set(key, { value: token, expiresAtMs: nowMs + ttlSeconds * 1000 });
@@ -326,11 +344,6 @@ function runAt(kv: ReturnType<typeof kvStore>, posts: PublishedPost[], slackLog:
 }
 
 describe("checkPostsImpl across two runs with one Key Value", () => {
-  beforeEach(() => {
-    vi.unstubAllEnvs();
-    vi.stubEnv("DRY_RUN", undefined);
-  });
-
   it("announces a post once across two runs in the same window", async () => {
     const kv = kvStore(Date.parse("2026-09-04T15:45:00Z"));
     const slack: string[][] = [];
@@ -386,7 +399,7 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
     // first kv.lock. Run A does its whole announce cycle in that gap.
     let interleaved = false;
     const lockHandler = kv.handlers["kv.lock"];
-    const handlers: Record<string, (input: any) => unknown> = {
+    const handlers: TaskHandlers = {
       ...kv.handlers,
       "kv.lock": async (input: any) => {
         if (!interleaved) {
@@ -430,9 +443,9 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
       // A crash leaves the in-flight lock behind, so no unlock runs.
       "kv.unlock": () => ({ released: false }),
     });
-    await expect(
-      checkPostsImpl(crashing.ctx, { ...BASE, now: "2026-09-04T15:45:00Z" }),
-    ).rejects.toThrow("instance died");
+    await expect(check(crashing.ctx, { ...BASE, now: "2026-09-04T15:45:00Z" })).rejects.toThrow(
+      "instance died",
+    );
 
     kv.at("2026-09-04T16:15:00Z");
     const run2 = await checkPostsImpl(runAt(kv, posts, slack).ctx, {

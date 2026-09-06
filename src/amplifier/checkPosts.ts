@@ -1,17 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import { postMessage } from "@render-lab/tasks-slack";
-import { loadConfig, type CheckPostsInput } from "../config.js";
+import { loadConfig, MAX_LIMIT, type CheckPostsInput } from "../config.js";
 import { listPublished } from "../typefully/listPublished.js";
 import type { Platform } from "../typefully/types.js";
 import { groupPosts } from "./group.js";
-import {
-  announcedDraftIds,
-  claimGroup,
-  isClaimed,
-  markAnnounced,
-  releaseGroup,
-} from "./seen.js";
+import { announcedDraftIds, claimGroup, isClaimed, markAnnounced, releaseGroup } from "./seen.js";
 import { notePlatforms, renderNote } from "./template.js";
 import { withinWindow } from "./window.js";
 
@@ -32,8 +26,8 @@ export interface CheckPostsResult {
   groups: number;
   notified: number;
   /**
-   * Announcements this run did not make: drafts an earlier run already
-   * announced, plus groups another run is announcing right now.
+   * Drafts this run did not announce: ones an earlier run already announced,
+   * plus ones in a group another run is announcing right now.
    */
   skipped: number;
   dryRun: boolean;
@@ -44,8 +38,9 @@ export interface CheckPostsResult {
 export async function checkPostsImpl(
   ctx: TaskContext,
   input: CheckPostsInput = {},
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<CheckPostsResult> {
-  const config = loadConfig(input);
+  const config = loadConfig(input, env);
   const nowMs = input.now ? Date.parse(input.now) : Date.now();
   if (!Number.isFinite(nowMs)) {
     throw new Error(`input.now is not a parseable timestamp: ${input.now}`);
@@ -66,7 +61,7 @@ export async function checkPostsImpl(
     console.warn(
       `[amplifier] Typefully returned ${posts.length} posts, the requested limit, and none ` +
         `is inside the ${config.lookbackMinutes}-minute lookback. The response may be ` +
-        `truncated to the oldest published drafts. Raise AMPLIFIER_LIMIT.`,
+        `truncated to the oldest published drafts. Raise AMPLIFIER_LIMIT, up to ${MAX_LIMIT}.`,
     );
   }
 
@@ -85,7 +80,7 @@ export async function checkPostsImpl(
   for (const group of groups) {
     const outcome = await claimGroup(ctx, group, runToken);
     if (!isClaimed(outcome)) {
-      skipped += 1;
+      skipped += group.draftIds.length;
       continue;
     }
     const { claims } = outcome;
