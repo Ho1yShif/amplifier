@@ -24,6 +24,9 @@ function readDrafts(body: unknown): TypefullyDraft[] {
   return [];
 }
 
+/** Typefully's real API. TYPEFULLY_BASE_URL overrides it for a local stub. */
+export const TYPEFULLY_BASE_URL = "https://api.typefully.com";
+
 /**
  * Default Typefully port. The API key is read from TYPEFULLY_API_KEY on first
  * call, never at import, so a missing secret fails on use.
@@ -36,7 +39,9 @@ export function typefullyPort(
 ): TypefullyPort {
   const env = opts.env ?? process.env;
   const client = createHttpClient({
-    baseUrl: "https://api.typefully.com",
+    // Set TYPEFULLY_BASE_URL only to point a local stub at scripts/typefully-stub.ts.
+    // The bearer token goes to whatever host it names, so leave it unset in production.
+    baseUrl: env.TYPEFULLY_BASE_URL ?? TYPEFULLY_BASE_URL,
     label: "Typefully API",
     // createHttpClient's fetchImpl is optional but not nullable, so omitting
     // the key selects global fetch. Spread it rather than pass undefined.
@@ -64,5 +69,15 @@ export function typefullyPort(
   };
 }
 
-/** Default deps used by the wrapped task in production. */
-export const defaultDeps: TypefullyDeps = { typefully: typefullyPort() };
+/**
+ * Default deps used by the wrapped task in production.
+ *
+ * The port is built on first use, not at import, so TYPEFULLY_API_KEY and
+ * TYPEFULLY_BASE_URL are read from the environment the run actually has.
+ */
+let port: TypefullyPort | undefined;
+export const defaultDeps: TypefullyDeps = {
+  get typefully(): TypefullyPort {
+    return (port ??= typefullyPort());
+  },
+};
