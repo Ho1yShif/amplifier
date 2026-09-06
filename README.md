@@ -1,8 +1,8 @@
 # Amplifier
 
-Amplifier posts one note to Slack when a Render post goes live on X or LinkedIn. The note asks the team to amplify it.
+Amplifier automates the process of sharing new LinkedIn and Twitter posts with the Render team. Whenever a post goes live on Twitter and/or LinkedIn, Amplifier sends a Slack note to the `#amplify` channel.
 
-It reads published drafts from Typefully, which is where the Render X and LinkedIn accounts are scheduled. A post sent to both platforms produces one note with both links.
+It reads published drafts from Typefully, which is where the Render Twitter and LinkedIn accounts are scheduled. A post sent to both platforms produces one note with both links.
 
 ## How it works
 
@@ -14,7 +14,7 @@ A Render cron job runs every 30 minutes and dispatches `amplifier.checkPosts` on
 4. Groups the rest, when they were published close together on different platforms, into one note.
 5. Takes a 5-minute lock per draft, posts the note through `slack.postMessage`, then records each draft as announced for 30 days.
 
-Dedupe is per draft, not per note, so a LinkedIn post that arrives after its X twin was announced still gets its own note.
+Dedupe is per draft, not per note, so a LinkedIn post that arrives after its Twitter twin was announced still gets its own note.
 
 Delivery is at least once. The announced marker is written after Slack accepts the note, so a run that dies in the gap between the two loses its lock within 5 minutes and the next run posts the same note again. The design accepts a duplicate note so that no note is lost.
 
@@ -42,22 +42,26 @@ render workflows start amplifier.checkPosts --local --input='[{}]'
 
 ## Configuration
 
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `TYPEFULLY_API_KEY` | — | Required. Typefully Settings > Integrations. |
-| `TYPEFULLY_SOCIAL_SET_ID` | — | Required. `GET /v2/social-sets` lists them. |
-| `SLACK_BOT_TOKEN` | — | Required for `SLACK_CHANNEL` to be honored. |
-| `SLACK_CHANNEL` | — | Channel the note goes to. |
-| `REDIS_URL` | — | Required. The `amplifier-kv` internal connection string. |
-| `DRY_RUN` | `true` | Set to `false` to post to Slack. |
-| `AMPLIFIER_LOOKBACK_MINUTES` | `90` | Wider than the 30-minute schedule, so a skipped run catches up. |
-| `AMPLIFIER_GROUP_WINDOW_MINUTES` | `10` | How close two drafts must be to share a note. |
-| `AMPLIFIER_SEEN_TTL_DAYS` | `30` | How long a draft stays marked as announced. |
-| `AMPLIFIER_LIMIT` | `25` | Drafts pulled per run. |
-| `AMPLIFIER_CALL_TO_ACTION` | see below | The ask at the end of the note. |
+| Variable                         | Default   | Range | Notes                                                                            |
+| -------------------------------- | --------- | ----- | -------------------------------------------------------------------------------- |
+| `TYPEFULLY_API_KEY`              | —         | —     | Required. Typefully Settings > Integrations.                                     |
+| `TYPEFULLY_SOCIAL_SET_ID`        | —         | —     | Required. `GET /v2/social-sets` lists them.                                      |
+| `SLACK_BOT_TOKEN`                | —         | —     | Required for `SLACK_CHANNEL` to be honored.                                      |
+| `SLACK_CHANNEL`                  | —         | —     | Channel the note goes to.                                                        |
+| `REDIS_URL`                      | —         | —     | Required. The `amplifier-kv` internal connection string.                         |
+| `DRY_RUN`                        | `true`    | —     | Set to `false` to post to Slack.                                                 |
+| `AMPLIFIER_LOOKBACK_MINUTES`     | `90`      | ≥ 1   | Wider than the 30-minute schedule, so a skipped run catches up.                  |
+| `AMPLIFIER_GROUP_WINDOW_MINUTES` | `10`      | ≥ 0   | How close two drafts must be to share a note. `0` turns grouping off.            |
+| `AMPLIFIER_SEEN_TTL_DAYS`        | `30`      | ≥ 1   | How long a draft stays marked as announced.                                      |
+| `AMPLIFIER_LIMIT`                | `25`      | 1–100 | Drafts pulled per run, and the run's widest burst of concurrent Key Value calls. |
+| `AMPLIFIER_CALL_TO_ACTION`       | see below | —     | The ask at the end of the note.                                                  |
+
+A numeric variable set to a fraction, to something non-numeric, or to a value outside
+its range fails the run with the variable's name in the error. Leaving one blank or
+unset uses the default.
 
 Default call to action: "Give it a like and a repost when you get a minute."
 
-## Adding X or LinkedIn directly
+## Adding Twitter or LinkedIn directly
 
-Everything that knows Typefully's field names lives in `src/typefully/`. `src/amplifier/` works only on the `PublishedPost` DTO, so a direct X or LinkedIn source means adding a sibling directory with a second task shaped like `typefully.listPublished` and merging its posts in `checkPosts.ts`.
+Everything that knows Typefully's field names lives in `src/typefully/`. `src/amplifier/` works only on the `PublishedPost` DTO, so a direct Twitter or LinkedIn source means adding a sibling directory with a second task shaped like `typefully.listPublished` and merging its posts in `checkPosts.ts`.
