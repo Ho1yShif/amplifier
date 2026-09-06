@@ -34,9 +34,11 @@ describe("renderNote", () => {
   });
 
   it("ends with the call to action", () => {
-    expect(renderNote(crossPost).markdown?.endsWith(
-      "Give it a like and a repost when you get a minute.",
-    )).toBe(true);
+    expect(
+      renderNote(crossPost).markdown?.endsWith(
+        "Give it a like and a repost when you get a minute.",
+      ),
+    ).toBe(true);
   });
 
   it("takes a custom call to action", () => {
@@ -65,7 +67,11 @@ describe("renderNote", () => {
       publishedAt: "2026-09-04T15:00:00Z",
       links: [
         { platform: "x", url: "https://x.com/a", publishedAt: "2026-09-04T15:00:00Z" },
-        { platform: "linkedin", url: "https://linkedin.com/b", publishedAt: "2026-09-04T15:04:00Z" },
+        {
+          platform: "linkedin",
+          url: "https://linkedin.com/b",
+          publishedAt: "2026-09-04T15:04:00Z",
+        },
       ],
     };
     expect(renderNote(merged).markdown).toContain("> first");
@@ -73,9 +79,10 @@ describe("renderNote", () => {
   });
 
   it("falls back to the Typefully draft when a permalink is missing", () => {
-    const pending: PostGroup = { ...crossPost, links: [
-      { platform: "x", publishedAt: "2026-09-04T15:00:00Z" },
-    ] };
+    const pending: PostGroup = {
+      ...crossPost,
+      links: [{ platform: "x", publishedAt: "2026-09-04T15:00:00Z" }],
+    };
     expect(renderNote(pending).markdown).toContain(
       "<https://typefully.com/t/abc|X (Typefully draft)>",
     );

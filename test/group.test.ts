@@ -26,10 +26,7 @@ describe("groupPosts", () => {
 
   it("merges two drafts on different platforms inside the window", () => {
     const groups = groupPosts(
-      [
-        post("1", "2026-09-04T15:00:00Z", ["x"]),
-        post("2", "2026-09-04T15:04:00Z", ["linkedin"]),
-      ],
+      [post("1", "2026-09-04T15:00:00Z", ["x"]), post("2", "2026-09-04T15:04:00Z", ["linkedin"])],
       10,
     );
     expect(groups).toHaveLength(1);
@@ -48,10 +45,7 @@ describe("groupPosts", () => {
 
   it("does not merge drafts outside the window", () => {
     const groups = groupPosts(
-      [
-        post("1", "2026-09-04T15:00:00Z", ["x"]),
-        post("2", "2026-09-04T15:20:00Z", ["linkedin"]),
-      ],
+      [post("1", "2026-09-04T15:00:00Z", ["x"]), post("2", "2026-09-04T15:20:00Z", ["linkedin"])],
       10,
     );
     expect(groups.map((g) => g.draftIds)).toEqual([["1"], ["2"]]);
@@ -59,10 +53,7 @@ describe("groupPosts", () => {
 
   it("measures the window from the group's first post, not the previous one", () => {
     const groups = groupPosts(
-      [
-        post("1", "2026-09-04T15:00:00Z", ["x"]),
-        post("2", "2026-09-04T15:08:00Z", ["linkedin"]),
-      ],
+      [post("1", "2026-09-04T15:00:00Z", ["x"]), post("2", "2026-09-04T15:08:00Z", ["linkedin"])],
       10,
     );
     expect(groups[0]?.draftIds).toEqual(["1", "2"]);
@@ -78,10 +69,7 @@ describe("groupPosts", () => {
 
   it("carries the first share URL in the group", () => {
     const groups = groupPosts(
-      [
-        post("1", "2026-09-04T15:00:00Z", ["x"]),
-        post("2", "2026-09-04T15:04:00Z", ["linkedin"]),
-      ],
+      [post("1", "2026-09-04T15:00:00Z", ["x"]), post("2", "2026-09-04T15:04:00Z", ["linkedin"])],
       10,
     );
     expect(groups[0]?.shareUrl).toBe("https://typefully.com/t/1");

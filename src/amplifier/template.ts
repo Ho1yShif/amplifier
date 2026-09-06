@@ -56,12 +56,16 @@ function linkMrkdwn(link: PlatformLink, shareUrl: string | undefined): string {
 export function renderNote(group: PostGroup, opts: RenderNoteOptions = {}): PostMessageInput {
   const links = orderedLinks(group);
   const linkLine = links.map((l) => linkMrkdwn(l, group.shareUrl)).join("  ·  ");
-  const quotes = group.previews.filter((p) => p !== "").map((p) => `> ${p}`).join("\n>\n");
+  const quotes = group.previews
+    .filter((p) => p !== "")
+    .map((p) => `> ${p}`)
+    .join("\n>\n");
   const callToAction = opts.callToAction ?? DEFAULT_CALL_TO_ACTION;
 
   const markdown = [quotes, linkLine, callToAction].filter((s) => s !== "").join("\n\n");
   const urls = links.map((l) => l.url).filter((u): u is string => u !== undefined);
-  const text = `${NOTE_TITLE}: ${urls.length > 0 ? urls.join(" ") : (group.shareUrl ?? "link pending")}`;
+  const target = urls.length > 0 ? urls.join(" ") : (group.shareUrl ?? "link pending");
+  const text = `${NOTE_TITLE}: ${target}`;
 
   return {
     text,

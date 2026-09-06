@@ -1,0 +1,4 @@
+dist/
+pnpm-lock.yaml
+# A record of a completed plan, kept as it was written.
+plan.md

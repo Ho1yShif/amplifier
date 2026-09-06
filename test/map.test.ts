@@ -48,9 +48,7 @@ describe("mapDraft", () => {
       x_post_published_at: "2026-09-04T15:00:00Z",
       x_published_url: null,
     });
-    expect(post?.links).toEqual([
-      { platform: "x", publishedAt: "2026-09-04T15:00:00Z" },
-    ]);
+    expect(post?.links).toEqual([{ platform: "x", publishedAt: "2026-09-04T15:00:00Z" }]);
   });
 
   it("ignores a platform that is enabled but not published", () => {

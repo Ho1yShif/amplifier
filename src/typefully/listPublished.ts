@@ -7,7 +7,7 @@ import type { ListPublishedInput, ListPublishedResult, PublishedPost } from "./t
 
 /** Raw implementation of typefully.listPublished. */
 export async function listPublishedImpl(
-  ctx: TaskContext,
+  _ctx: TaskContext,
   input: ListPublishedInput,
   deps: TypefullyDeps = defaultDeps,
 ): Promise<ListPublishedResult> {

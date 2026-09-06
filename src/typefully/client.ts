@@ -38,7 +38,9 @@ export function typefullyPort(
   const client = createHttpClient({
     baseUrl: "https://api.typefully.com",
     label: "Typefully API",
-    fetchImpl: opts.fetchImpl,
+    // createHttpClient's fetchImpl is optional but not nullable, so omitting
+    // the key selects global fetch. Spread it rather than pass undefined.
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
     auth: () => {
       const key = env.TYPEFULLY_API_KEY;
       if (!key) {

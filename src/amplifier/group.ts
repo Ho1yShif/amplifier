@@ -1,5 +1,5 @@
 import { compareTime } from "../time.js";
-import type { PlatformLink, PublishedPost } from "../typefully/types.js";
+import type { Platform, PlatformLink, PublishedPost } from "../typefully/types.js";
 
 /** One Slack note's worth of published posts. */
 export interface PostGroup {
@@ -23,6 +23,8 @@ export interface PostGroup {
  * only when the later one lands within `groupWindowMinutes` of the group's
  * first post AND adds a platform the group does not have yet — two X posts
  * minutes apart are two announcements, not one cross-post.
+ *
+ * Every `publishedAt` must parse; `withinWindow` drops the ones that do not.
  */
 export function groupPosts(posts: PublishedPost[], groupWindowMinutes: number): PostGroup[] {
   const windowMs = groupWindowMinutes * 60_000;
@@ -31,7 +33,7 @@ export function groupPosts(posts: PublishedPost[], groupWindowMinutes: number): 
   const groups: PostGroup[] = [];
   let current: PostGroup | undefined;
   let currentStartMs = 0;
-  let currentPlatforms = new Set<string>();
+  let currentPlatforms = new Set<Platform>();
 
   for (const post of ordered) {
     const startMs = Date.parse(post.publishedAt);
@@ -56,7 +58,7 @@ export function groupPosts(posts: PublishedPost[], groupWindowMinutes: number): 
       ...(post.shareUrl ? { shareUrl: post.shareUrl } : {}),
     };
     currentStartMs = startMs;
-    currentPlatforms = new Set<string>(platforms);
+    currentPlatforms = new Set<Platform>(platforms);
     groups.push(current);
   }
 

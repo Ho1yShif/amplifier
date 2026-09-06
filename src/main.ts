@@ -8,6 +8,6 @@ import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import "./amplifier/checkPosts.js";
 
 // Zero-dep smoke task, handy for verifying the service is live.
-export const ping = task({ name: "ping" }, function ping(ctx: TaskContext): string {
+export const ping = task({ name: "ping" }, function ping(_ctx: TaskContext): string {
   return "pong";
 });
