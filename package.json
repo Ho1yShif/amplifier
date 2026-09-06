@@ -10,6 +10,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "trigger:cron": "node dist/cron-trigger.js",
+    "stub": "tsx scripts/typefully-stub.ts",
+    "local:run": "tsx scripts/local-run.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
