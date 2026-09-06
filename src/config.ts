@@ -41,14 +41,37 @@ export function loadConfig(
 ): AmplifierConfig {
   const socialSetId = input.socialSetId ?? env.TYPEFULLY_SOCIAL_SET_ID;
   const slackChannel = input.slackChannel ?? env.SLACK_CHANNEL;
-  const seenTtlDays = input.seenTtlDays ?? numberFromEnv(env.AMPLIFIER_SEEN_TTL_DAYS, 30);
+  const seenTtlDays = whole(
+    "AMPLIFIER_SEEN_TTL_DAYS",
+    input.seenTtlDays,
+    env.AMPLIFIER_SEEN_TTL_DAYS,
+    {
+      fallback: 30,
+      min: 1,
+    },
+  );
 
   return {
     ...(socialSetId ? { socialSetId } : {}),
-    limit: input.limit ?? numberFromEnv(env.AMPLIFIER_LIMIT, 25),
-    lookbackMinutes: input.lookbackMinutes ?? numberFromEnv(env.AMPLIFIER_LOOKBACK_MINUTES, 90),
-    groupWindowMinutes:
-      input.groupWindowMinutes ?? numberFromEnv(env.AMPLIFIER_GROUP_WINDOW_MINUTES, 10),
+    limit: whole("AMPLIFIER_LIMIT", input.limit, env.AMPLIFIER_LIMIT, {
+      fallback: 25,
+      min: 1,
+      max: MAX_LIMIT,
+    }),
+    lookbackMinutes: whole(
+      "AMPLIFIER_LOOKBACK_MINUTES",
+      input.lookbackMinutes,
+      env.AMPLIFIER_LOOKBACK_MINUTES,
+      { fallback: 90, min: 1 },
+    ),
+    // A group window of 0 groups only drafts published at the same instant.
+    // Set it to 0 to turn grouping off.
+    groupWindowMinutes: whole(
+      "AMPLIFIER_GROUP_WINDOW_MINUTES",
+      input.groupWindowMinutes,
+      env.AMPLIFIER_GROUP_WINDOW_MINUTES,
+      { fallback: 10, min: 0 },
+    ),
     seenTtlSeconds: seenTtlDays * 86_400,
     ...(slackChannel ? { slackChannel } : {}),
     callToAction: input.callToAction ?? env.AMPLIFIER_CALL_TO_ACTION ?? DEFAULT_CALL_TO_ACTION,
@@ -56,7 +79,46 @@ export function loadConfig(
   };
 }
 
-function numberFromEnv(value: string | undefined, fallback: number): number {
-  const n = value === undefined ? NaN : Number(value);
-  return Number.isFinite(n) ? n : fallback;
+/**
+ * Most drafts one run may pull, and so the widest burst of concurrent Key Value
+ * subtasks a run can open. `announcedDraftIds` and `markAnnounced` dispatch one
+ * `ctx.run` per draft at once, so the limit and the burst are the same number.
+ */
+export const MAX_LIMIT = 100;
+
+interface Bounds {
+  /** Used when the override is absent and the environment variable is unset or blank. */
+  fallback: number;
+  min: number;
+  max?: number;
+}
+
+/**
+ * Resolve one whole-number setting from the per-run override, then the
+ * environment, then the default.
+ *
+ * An unset or blank environment variable means "use the default", because a
+ * declared-but-empty variable is the normal state of a Render env var nobody
+ * filled in. Any other unusable value throws. A value that resolved to 0
+ * instead would make every run pull no drafts and post nothing, with no error
+ * to read.
+ */
+function whole(
+  name: string,
+  override: number | undefined,
+  envValue: string | undefined,
+  { fallback, min, max }: Bounds,
+): number {
+  if (override === undefined && (envValue === undefined || envValue.trim() === "")) {
+    return fallback;
+  }
+  const value = override ?? Number(envValue);
+  if (!Number.isInteger(value) || value < min || (max !== undefined && value > max)) {
+    const range = max === undefined ? `of at least ${min}` : `between ${min} and ${max}`;
+    throw new Error(
+      `${name} must be a whole number ${range}; got ` +
+        `${override !== undefined ? override : JSON.stringify(envValue)}.`,
+    );
+  }
+  return value;
 }
