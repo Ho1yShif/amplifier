@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { fakeCtx } from "@render-lab/test-utils";
-import type { TaskDefinition } from "@renderinc/sdk/workflows";
 import {
   announcedDraftIds,
   claimGroup,
@@ -12,6 +10,7 @@ import {
   INFLIGHT_TTL_SECONDS,
 } from "../src/amplifier/seen.js";
 import type { PostGroup } from "../src/amplifier/group.js";
+import { taskCtx } from "./support/taskCtx.js";
 
 const group: PostGroup = {
   draftIds: ["1", "2"],
@@ -25,20 +24,6 @@ const group: PostGroup = {
 
 const TOKEN = "amplifier:run:this-run";
 
-/** A ctx whose run() dispatches by task name to a handler map. */
-function kvCtx(handlers: Record<string, (input: any) => unknown>) {
-  const calls: Array<{ name: string; input: any }> = [];
-  const ctx = fakeCtx({
-    run: (async (t: TaskDefinition<any, any>, input: any) => {
-      calls.push({ name: t.name, input });
-      const handler = handlers[t.name];
-      if (!handler) throw new Error(`unexpected task ${t.name}`);
-      return handler(input);
-    }) as any,
-  });
-  return { ctx, calls };
-}
-
 describe("keys", () => {
   it("namespaces the announced marker by draft id", () => {
     expect(seenKey("41")).toBe("amplifier:seen:41");
@@ -51,16 +36,17 @@ describe("keys", () => {
 
 describe("announcedDraftIds", () => {
   it("reports the drafts with an announced marker", async () => {
-    const { ctx, calls } = kvCtx({
+    const { ctx, calls } = taskCtx({
       "kv.get": (input) => ({ value: input.key === "amplifier:seen:1" ? "announced" : null }),
     });
 
     expect(await announcedDraftIds(ctx, ["1", "2"])).toEqual(new Set(["1"]));
-    expect(calls.map((c) => c.input.key)).toEqual(["amplifier:seen:1", "amplifier:seen:2"]);
+    // Sorted, because the reads are dispatched together and no order is promised.
+    expect(calls.map((c) => c.input.key).sort()).toEqual(["amplifier:seen:1", "amplifier:seen:2"]);
   });
 
   it("reports nothing when no draft has been announced", async () => {
-    const { ctx } = kvCtx({ "kv.get": () => ({ value: null }) });
+    const { ctx } = taskCtx({ "kv.get": () => ({ value: null }) });
     expect(await announcedDraftIds(ctx, ["1", "2"])).toEqual(new Set());
   });
 });
@@ -69,7 +55,7 @@ describe("claimGroup", () => {
   const unannounced = { "kv.get": () => ({ value: null }) };
 
   it("locks every draft in the group with this run's token", async () => {
-    const { ctx, calls } = kvCtx({ "kv.lock": () => ({ acquired: true }), ...unannounced });
+    const { ctx, calls } = taskCtx({ "kv.lock": () => ({ acquired: true }), ...unannounced });
 
     const outcome = await claimGroup(ctx, group, TOKEN);
 
@@ -81,14 +67,14 @@ describe("claimGroup", () => {
   });
 
   it("refuses the group when another run holds a live lock", async () => {
-    const { ctx } = kvCtx({ "kv.lock": () => ({ acquired: false }), ...unannounced });
+    const { ctx } = taskCtx({ "kv.lock": () => ({ acquired: false }), ...unannounced });
     expect(await claimGroup(ctx, group, TOKEN)).toEqual({ reason: "in-flight", draftId: "1" });
   });
 
   it("refuses the group when a marker appears after the lock is acquired", async () => {
     // The window this closes: announcedDraftIds ran before the lock, so another
     // run can finish announcing the draft in between.
-    const { ctx, calls } = kvCtx({
+    const { ctx, calls } = taskCtx({
       "kv.lock": () => ({ acquired: true }),
       "kv.get": (input) => ({ value: input.key === "amplifier:seen:2" ? "announced" : null }),
       "kv.unlock": () => ({ released: true }),
@@ -102,7 +88,7 @@ describe("claimGroup", () => {
   });
 
   it("re-reads the marker, not the lock's own value", async () => {
-    const { ctx, calls } = kvCtx({ "kv.lock": () => ({ acquired: true }), ...unannounced });
+    const { ctx, calls } = taskCtx({ "kv.lock": () => ({ acquired: true }), ...unannounced });
 
     await claimGroup(ctx, group, TOKEN);
 
@@ -113,7 +99,7 @@ describe("claimGroup", () => {
   });
 
   it("releases the locks it took before giving up", async () => {
-    const { ctx, calls } = kvCtx({
+    const { ctx, calls } = taskCtx({
       "kv.lock": (input) => ({ acquired: input.key === "amplifier:inflight:1" }),
       "kv.unlock": () => ({ released: true }),
       ...unannounced,
@@ -128,20 +114,22 @@ describe("claimGroup", () => {
 
 describe("markAnnounced", () => {
   it("writes one marker per draft with the given TTL", async () => {
-    const { ctx, calls } = kvCtx({ "kv.set": () => ({ ok: true }) });
+    const { ctx, calls } = taskCtx({ "kv.set": () => ({ ok: true }) });
 
     await markAnnounced(ctx, group.draftIds, 86_400);
 
-    expect(calls).toEqual([
-      { name: "kv.set", input: { key: "amplifier:seen:1", value: "announced", ttlSeconds: 86_400 } },
-      { name: "kv.set", input: { key: "amplifier:seen:2", value: "announced", ttlSeconds: 86_400 } },
+    // Sorted, because the writes are dispatched together and no order is promised.
+    expect(calls.map((c) => c.input).sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: "amplifier:seen:1", value: "announced", ttlSeconds: 86_400 },
+      { key: "amplifier:seen:2", value: "announced", ttlSeconds: 86_400 },
     ]);
+    expect(calls.every((c) => c.name === "kv.set")).toBe(true);
   });
 });
 
 describe("releaseGroup", () => {
   it("unlocks every claim with its token", async () => {
-    const { ctx, calls } = kvCtx({ "kv.unlock": () => ({ released: true }) });
+    const { ctx, calls } = taskCtx({ "kv.unlock": () => ({ released: true }) });
 
     await releaseGroup(ctx, [{ key: "amplifier:inflight:1", token: TOKEN }]);
 
@@ -151,7 +139,7 @@ describe("releaseGroup", () => {
   });
 
   it("does nothing for no claims", async () => {
-    const { ctx, calls } = kvCtx({});
+    const { ctx, calls } = taskCtx({});
     await releaseGroup(ctx, []);
     expect(calls).toEqual([]);
   });

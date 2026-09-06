@@ -31,17 +31,22 @@ export function inflightKey(draftId: string): string {
  * Read this before grouping. Group membership depends on what Typefully
  * returned on this run, so it is not stable across runs and cannot be the unit
  * of dedupe. A draft is.
+ *
+ * The reads are independent, so they are dispatched together. Each `ctx.run`
+ * polls its own subtask every 500ms, and 25 sequential reads would wait
+ * through 25 of those intervals.
  */
 export async function announcedDraftIds(
   ctx: TaskContext,
   draftIds: string[],
 ): Promise<Set<string>> {
-  const announced = new Set<string>();
-  for (const draftId of draftIds) {
-    const { value } = await ctx.run(kvGet, { key: seenKey(draftId) });
-    if (value !== null) announced.add(draftId);
-  }
-  return announced;
+  const marks = await Promise.all(
+    draftIds.map(async (draftId) => {
+      const { value } = await ctx.run(kvGet, { key: seenKey(draftId) });
+      return { draftId, announced: value !== null };
+    }),
+  );
+  return new Set(marks.filter((m) => m.announced).map((m) => m.draftId));
 }
 
 /**
@@ -108,23 +113,42 @@ export async function claimGroup(
  * marker is separate from the in-flight lock, so a lock left behind by a
  * crashed run never reads as a completed announcement.
  *
- * One `kv.set` per draft, so a failure part way through leaves some drafts
- * marked and some not. The caller releases the locks and the next run announces
- * the unmarked drafts as their own group.
+ * One `kv.set` per draft, so a failure leaves some drafts marked and some not.
+ * The caller releases the locks and the next run announces the unmarked drafts
+ * as their own group.
  */
 export async function markAnnounced(
   ctx: TaskContext,
   draftIds: string[],
   ttlSeconds: number,
 ): Promise<void> {
-  for (const draftId of draftIds) {
-    await ctx.run(kvSet, { key: seenKey(draftId), value: "announced", ttlSeconds });
-  }
+  await Promise.all(
+    draftIds.map((draftId) =>
+      ctx.run(kvSet, { key: seenKey(draftId), value: "announced", ttlSeconds }),
+    ),
+  );
 }
 
-/** Release in-flight locks so a later run can announce these drafts. */
+/**
+ * Release in-flight locks so a later run can announce these drafts.
+ *
+ * A failed unlock is logged, not thrown. The lock expires on its own after
+ * `INFLIGHT_TTL_SECONDS`, so releasing it early only brings the next run's
+ * retry forward, and a caller that is already throwing must not lose its error
+ * to a cleanup failure.
+ */
 export async function releaseGroup(ctx: TaskContext, claims: Claim[]): Promise<void> {
-  for (const claim of claims) {
-    await ctx.run(unlock, { key: claim.key, token: claim.token });
-  }
+  await Promise.all(
+    claims.map(async (claim) => {
+      try {
+        await ctx.run(unlock, { key: claim.key, token: claim.token });
+      } catch (err) {
+        console.error(
+          `[amplifier] Could not release the in-flight lock ${claim.key}. It expires in ` +
+            `${INFLIGHT_TTL_SECONDS}s and the next run retries the draft.`,
+          err,
+        );
+      }
+    }),
+  );
 }
