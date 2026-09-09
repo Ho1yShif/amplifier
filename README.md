@@ -98,13 +98,13 @@ manifest.
 | `AMPLIFIER_GROUP_WINDOW_MINUTES` | `10`      | ≥ 0   | How close two drafts must be to share a note. `0` turns grouping off.            |
 | `AMPLIFIER_SEEN_TTL_DAYS`        | `30`      | ≥ 1   | How long a draft stays marked as announced.                                      |
 | `AMPLIFIER_LIMIT`                | `25`      | 1–100 | Drafts pulled per run, and the run's widest burst of concurrent Key Value calls. |
-| `AMPLIFIER_CALL_TO_ACTION`       | see below | —     | The ask at the end of the note.                                                  |
+| `AMPLIFIER_CALL_TO_ACTION`       | see below | —     | The note's opening line and the amplify ask.                                                  |
 
 A numeric variable set to a fraction, to something non-numeric, or to a value outside
 its range fails the run with the variable's name in the error. Leaving one blank or
 unset uses the default.
 
-Default call to action: "Give it a like and a repost when you get a minute."
+Default call to action: "New Render social post! Please like and share when you have a minute"
 
 ## Adding Twitter or LinkedIn directly
 

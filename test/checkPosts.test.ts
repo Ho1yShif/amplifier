@@ -57,8 +57,8 @@ describe("checkPostsImpl", () => {
     const posts = calls.filter((c) => c.name === "slack.postMessage");
     expect(posts).toHaveLength(1);
     expect(posts[0]?.input.channel).toBe("#social");
-    expect(posts[0]?.input.markdown).toContain("|X>");
-    expect(posts[0]?.input.markdown).toContain("|LinkedIn>");
+    expect(posts[0]?.input.markdown).toContain("|X post>");
+    expect(posts[0]?.input.markdown).toContain("|LinkedIn post>");
     expect(result.notified).toBe(1);
   });
 

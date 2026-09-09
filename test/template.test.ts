@@ -20,23 +20,23 @@ const crossPost: PostGroup = {
 describe("renderNote", () => {
   it("links every platform in one message", () => {
     const note = renderNote(crossPost);
-    expect(note.markdown).toContain("<https://x.com/render/status/1|X>");
-    expect(note.markdown).toContain("<https://linkedin.com/feed/update/2|LinkedIn>");
+    expect(note.markdown).toContain("<https://x.com/render/status/1|X post>");
+    expect(note.markdown).toContain("<https://linkedin.com/feed/update/2|LinkedIn post>");
   });
 
-  it("puts X before LinkedIn", () => {
+  it("puts LinkedIn before X", () => {
     const md = renderNote(crossPost).markdown ?? "";
-    expect(md.indexOf("|X>")).toBeLessThan(md.indexOf("|LinkedIn>"));
+    expect(md.indexOf("|LinkedIn post>")).toBeLessThan(md.indexOf("|X post>"));
   });
 
   it("quotes the preview", () => {
     expect(renderNote(crossPost).markdown).toContain("> We cut cold starts on Render by 40%.");
   });
 
-  it("ends with the call to action", () => {
+  it("opens with the call to action", () => {
     expect(
-      renderNote(crossPost).markdown?.endsWith(
-        "Give it a like and a repost when you get a minute.",
+      renderNote(crossPost).markdown?.startsWith(
+        "New Render social post! Please like and share when you have a minute",
       ),
     ).toBe(true);
   });
@@ -46,9 +46,9 @@ describe("renderNote", () => {
     expect(note.markdown).toContain("Boost it please.");
   });
 
-  it("sets a title and a plain-text fallback", () => {
+  it("sets no title and a plain-text fallback carrying the links", () => {
     const note = renderNote(crossPost);
-    expect(note.title).toBe("New Render post to amplify");
+    expect(note.title).toBeUndefined();
     expect(note.text).toContain("https://x.com/render/status/1");
   });
 
@@ -84,7 +84,7 @@ describe("renderNote", () => {
       links: [{ platform: "x", publishedAt: "2026-09-04T15:00:00Z" }],
     };
     expect(renderNote(pending).markdown).toContain(
-      "<https://typefully.com/t/abc|X (Typefully draft)>",
+      "<https://typefully.com/t/abc|X post (Typefully draft)>",
     );
   });
 
@@ -95,7 +95,7 @@ describe("renderNote", () => {
       publishedAt: "2026-09-04T15:00:00Z",
       links: [{ platform: "x", publishedAt: "2026-09-04T15:00:00Z" }],
     };
-    expect(renderNote(pending).markdown).toContain("X (link pending)");
+    expect(renderNote(pending).markdown).toContain("X post (link pending)");
   });
 
   it("keeps one link per platform when two drafts share a platform", () => {
