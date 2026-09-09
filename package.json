@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@render-lab/tasks-core": "0.3.0",
+    "@render-lab/tasks-llm": "0.8.1",
     "@render-lab/tasks-render-kv": "0.3.0",
     "@render-lab/tasks-slack": "0.3.0",
     "@render-lab/triggers": "0.2.0",
