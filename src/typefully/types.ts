@@ -26,19 +26,24 @@ export interface PublishedPost {
 }
 
 /**
- * The subset of Typefully's draft response amplifier reads. Every field is
- * optional because the API adds fields over time and a missing one must not
- * throw — `mapDraft` decides what is usable.
+ * Typefully's draft response, covering both the fields amplifier reads and
+ * the ones it deliberately ignores. Every field is optional because the API
+ * adds fields over time and a missing one must not throw — `mapDraft`
+ * decides what is usable.
  */
 export interface TypefullyDraft {
   id?: string | number;
   preview?: string;
+  /** Not read. `mapDraft` decides a platform published from its own timestamp field, not this. */
   status?: string;
+  /** Not read. `mapDraft` uses the per-platform `*_post_published_at` fields instead. */
   published_at?: string | null;
   share_url?: string | null;
+  /** Not read. `mapDraft` uses `x_post_published_at` to decide whether X published. */
   x_post_enabled?: boolean;
   x_post_published_at?: string | null;
   x_published_url?: string | null;
+  /** Not read. `mapDraft` uses `linkedin_post_published_at` to decide whether LinkedIn published. */
   linkedin_post_enabled?: boolean;
   linkedin_post_published_at?: string | null;
   linkedin_published_url?: string | null;
