@@ -46,10 +46,10 @@ describe("renderNote", () => {
     expect(note.markdown).toContain("Boost it please.");
   });
 
-  it("sets no title and a plain-text fallback carrying the links", () => {
+  it("sets no title and a plain-text fallback with no bare URL", () => {
     const note = renderNote(crossPost);
     expect(note.title).toBeUndefined();
-    expect(note.text).toContain("https://x.com/render/status/1");
+    expect(note.text).not.toContain("https://");
   });
 
   it("passes the channel through", () => {
@@ -110,5 +110,42 @@ describe("renderNote", () => {
     };
     expect(notePlatforms(dupe)).toEqual(["x"]);
     expect(renderNote(dupe).markdown).not.toContain("https://x.com/b");
+  });
+
+  it("uses the summary as the whole lead line", () => {
+    const md =
+      renderNote(crossPost, { summary: "Cold starts are 40% faster. Please amplify!" }).markdown ??
+      "";
+    expect(md.startsWith("Cold starts are 40% faster. Please amplify!")).toBe(true);
+    expect(md).not.toContain("New Render social post!");
+  });
+
+  it("drops the preview quote when there is a summary", () => {
+    const md = renderNote(crossPost, { summary: "Cold starts are 40% faster." }).markdown ?? "";
+    expect(md).not.toContain("> We cut cold starts on Render by 40%.");
+  });
+
+  it("still links every platform under a summary", () => {
+    const md = renderNote(crossPost, { summary: "Cold starts are 40% faster." }).markdown ?? "";
+    expect(md).toContain("• <https://linkedin.com/feed/update/2|LinkedIn post>");
+    expect(md).toContain("• <https://x.com/render/status/1|X post>");
+  });
+
+  it("names the failure and keeps the quote when there is no summary", () => {
+    const md = renderNote(crossPost, { summaryError: "401 invalid x-api-key" }).markdown ?? "";
+    expect(md).toContain("_(Summarization LLM call failed: 401 invalid x-api-key)_");
+    expect(md).toContain("> We cut cold starts on Render by 40%.");
+    expect(md.startsWith("New Render social post!")).toBe(true);
+  });
+
+  it("sets the notification fallback to the summary and no URL", () => {
+    const note = renderNote(crossPost, { summary: "Cold starts are 40% faster." });
+    expect(note.text).toBe("Cold starts are 40% faster.");
+    expect(note.text).not.toContain("https://");
+  });
+
+  it("keeps no URL in the notification fallback when the summary failed", () => {
+    const note = renderNote(crossPost, { summaryError: "boom" });
+    expect(note.text).not.toContain("https://");
   });
 });

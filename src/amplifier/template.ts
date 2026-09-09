@@ -16,6 +16,10 @@ export interface RenderNoteOptions {
   /** Slack channel to post to. Requires SLACK_BOT_TOKEN to be honored. */
   channel?: string;
   callToAction?: string;
+  /** The model's one-line summary. When present it is the note's whole lead line. */
+  summary?: string;
+  /** Why there is no summary, shown under the fallback lead line. */
+  summaryError?: string;
 }
 
 /** One link per platform in display order, keeping the earliest of any duplicates. */
@@ -46,30 +50,43 @@ function linkMrkdwn(link: PlatformLink, shareUrl: string | undefined): string {
 }
 
 /**
- * Build the Slack message for one announcement: the amplify ask, the post text
- * as a quote, and a bulleted link per platform.
+ * Build the Slack message for one announcement.
+ *
+ * With a summary, the note is that one line and a bulleted link per platform.
+ * Without one, it falls back to the call to action, the reason the summary is
+ * missing, and the draft's preview as a quote — the preview is the only content
+ * signal left, so it is worth the extra lines.
  *
  * `text` is the notification fallback Slack shows in the sidebar and in push
- * notifications, so it carries the URLs rather than only the ask.
+ * notifications. It carries the lead line and no URL: every link in the note is
+ * hyperlinked on its label, and a bare URL here also renders an unfurl card.
  */
 export function renderNote(group: PostGroup, opts: RenderNoteOptions = {}): PostMessageInput {
   const links = orderedLinks(group);
   // Slack mrkdwn has no list syntax, so the bullet is a literal character.
   const linkList = links.map((l) => `• ${linkMrkdwn(l, group.shareUrl)}`).join("\n");
-  const quotes = group.previews
-    .filter((p) => p !== "")
-    .map((p) => `> ${p}`)
-    .join("\n>\n");
-  const callToAction = opts.callToAction ?? DEFAULT_CALL_TO_ACTION;
+  const summary = opts.summary?.trim();
+  const lead = summary || (opts.callToAction ?? DEFAULT_CALL_TO_ACTION);
 
-  const markdown = [callToAction, quotes, linkList].filter((s) => s !== "").join("\n\n");
-  const urls = links.map((l) => l.url).filter((u): u is string => u !== undefined);
-  const target = urls.length > 0 ? urls.join(" ") : (group.shareUrl ?? "link pending");
-  const text = `${callToAction} ${target}`;
+  const blocks: string[] = [];
+  if (summary) {
+    blocks.push(lead);
+  } else {
+    const failure = opts.summaryError
+      ? `\n_(Summarization LLM call failed: ${opts.summaryError})_`
+      : "";
+    blocks.push(`${lead}${failure}`);
+    const quotes = group.previews
+      .filter((p) => p !== "")
+      .map((p) => `> ${p}`)
+      .join("\n>\n");
+    blocks.push(quotes);
+  }
+  blocks.push(linkList);
 
   return {
-    text,
-    markdown,
+    text: lead,
+    markdown: blocks.filter((s) => s !== "").join("\n\n"),
     ...(opts.channel ? { channel: opts.channel } : {}),
   };
 }
