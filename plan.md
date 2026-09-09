@@ -1080,9 +1080,11 @@ TYPEFULLY_API_KEY=stub-key TYPEFULLY_BASE_URL=http://localhost:8787 \
 
 Expected: a note in `#test-shif-amplify` reading as one summary line and two bullets labeled `LinkedIn post` and `X post`. Clear the `amplifier:*` keys before a repeat run, or the second one reports `skipped` and posts nothing, which is the dedupe working.
 
-- [ ] **Step 4: Check whether the unfurl cards are gone**
+- [x] **Step 4: Check whether the unfurl cards are gone**
 
-`text` no longer carries the URLs. Compare this note against the two messages labeled UNFURL TEST A and UNFURL TEST B in `#test-shif-amplify`. If the preview cards are gone, the link-preview thread in the handoff is closed and no upstream change to `@render-lab/tasks-slack` is needed. Record the answer either way.
+Answer: the cards are still there. Emptying `text` of URLs was not enough, because Slack also unfurls links inside a section block's mrkdwn.
+
+`@render-lab/tasks-slack` 0.3.0 needs an upstream change. `PostMessageInput` has no unfurl option, and `postMessageImpl` sends neither `unfurl_links` nor `unfurl_media`, so `chat.postMessage` and the incoming webhook both default to unfurling. The fix is an optional `unfurl?: boolean` on `PostMessageInput` that passes `unfurl_links` and `unfurl_media` through to Slack. Amplifier would set it to false.
 
 - [x] **Step 5: Clean up and commit**
 
