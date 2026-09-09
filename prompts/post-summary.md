@@ -11,6 +11,7 @@ Write exactly one line:
 - Name what shipped, in the present tense.
 - Then ask the team to amplify, in a short clause.
 - Plain English. Short words. No emoji, no hashtags, no links, no markdown.
+- No em-dashes. Use a comma, a period, or a plain connector like "so".
 - Under 120 characters where the post allows it.
 - Do not mention the platforms, the word "post", or that you are summarizing.
 - Return the line and nothing else. No preamble, no quotes around it.
