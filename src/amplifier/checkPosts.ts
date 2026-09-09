@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
-import { postMessage } from "@render-lab/tasks-slack";
 import { loadConfig, MAX_LIMIT, type CheckPostsInput } from "../config.js";
+import { postNote } from "../slack/postNote.js";
 import { listPublished } from "../typefully/listPublished.js";
 import type { Platform } from "../typefully/types.js";
 import { groupPosts } from "./group.js";
@@ -122,7 +122,7 @@ export async function checkPostsImpl(
 
     let delivered = false;
     try {
-      ({ delivered } = await ctx.run(postMessage, message));
+      ({ delivered } = await ctx.run(postNote, message));
       if (delivered) {
         await markAnnounced(ctx, group.draftIds, config.seenTtlSeconds);
       }

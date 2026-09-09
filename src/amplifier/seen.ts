@@ -109,7 +109,7 @@ export async function claimGroup(
 /**
  * Record every draft in the group as announced, with the 30-day TTL.
  *
- * Call this only after `slack.postMessage` reports the note delivered. The
+ * Call this only after `amplifier.postNote` reports the note delivered. The
  * marker is separate from the in-flight lock, so a lock left behind by a
  * crashed run never reads as a completed announcement.
  *

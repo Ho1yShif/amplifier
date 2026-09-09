@@ -28,7 +28,7 @@ function runCtx(overrides: TaskHandlers = {}) {
     "kv.unlock": () => ({ released: true }),
     "kv.get": () => ({ value: null }),
     "kv.set": () => ({ ok: true }),
-    "slack.postMessage": () => ({ delivered: true }),
+    "amplifier.postNote": () => ({ delivered: true }),
     "llm.complete": () => ({
       text: "Something shipped. Please amplify!",
       model: "m",
@@ -59,7 +59,7 @@ describe("checkPostsImpl", () => {
 
     const result = await check(ctx, BASE);
 
-    const posts = calls.filter((c) => c.name === "slack.postMessage");
+    const posts = calls.filter((c) => c.name === "amplifier.postNote");
     expect(posts).toHaveLength(1);
     expect(posts[0]?.input.channel).toBe("#social");
     expect(posts[0]?.input.markdown).toContain("|X post>");
@@ -79,7 +79,7 @@ describe("checkPostsImpl", () => {
 
     const result = await check(ctx, { ...BASE, groupWindowMinutes: 10 });
 
-    expect(calls.filter((c) => c.name === "slack.postMessage")).toHaveLength(1);
+    expect(calls.filter((c) => c.name === "amplifier.postNote")).toHaveLength(1);
     expect(result.notes[0]?.draftIds).toEqual(["1", "2"]);
   });
 
@@ -92,7 +92,7 @@ describe("checkPostsImpl", () => {
 
     const result = await check(ctx, { ...BASE, lookbackMinutes: 90 });
 
-    expect(calls.filter((c) => c.name === "slack.postMessage")).toEqual([]);
+    expect(calls.filter((c) => c.name === "amplifier.postNote")).toEqual([]);
     expect(result.inWindow).toBe(0);
   });
 
@@ -106,7 +106,7 @@ describe("checkPostsImpl", () => {
 
     const result = await check(ctx, BASE);
 
-    expect(calls.filter((c) => c.name === "slack.postMessage")).toEqual([]);
+    expect(calls.filter((c) => c.name === "amplifier.postNote")).toEqual([]);
     expect(calls.filter((c) => c.name === "kv.lock")).toEqual([]);
     expect(result.skipped).toBe(1);
     expect(result.groups).toBe(0);
@@ -122,7 +122,7 @@ describe("checkPostsImpl", () => {
 
     const result = await check(ctx, BASE);
 
-    expect(calls.filter((c) => c.name === "slack.postMessage")).toEqual([]);
+    expect(calls.filter((c) => c.name === "amplifier.postNote")).toEqual([]);
     expect(result.skipped).toBe(1);
   });
 
@@ -152,7 +152,7 @@ describe("checkPostsImpl", () => {
       "typefully.listPublished": () => ({
         posts: [post("1", "2026-09-04T15:30:00Z", ["x"])],
       }),
-      "slack.postMessage": () => {
+      "amplifier.postNote": () => {
         throw new Error("slack down");
       },
       "kv.unlock": () => {
@@ -175,7 +175,7 @@ describe("checkPostsImpl", () => {
     await check(ctx, BASE);
 
     const names = calls.map((c) => c.name);
-    expect(names.indexOf("slack.postMessage")).toBeLessThan(names.indexOf("kv.set"));
+    expect(names.indexOf("amplifier.postNote")).toBeLessThan(names.indexOf("kv.set"));
     expect(calls.filter((c) => c.name === "kv.set").map((c) => c.input)).toEqual([
       { key: "amplifier:seen:1", value: "announced", ttlSeconds: 30 * 86_400 },
     ]);
@@ -186,7 +186,7 @@ describe("checkPostsImpl", () => {
       "typefully.listPublished": () => ({
         posts: [post("1", "2026-09-04T15:30:00Z", ["x"])],
       }),
-      "slack.postMessage": () => ({ delivered: false }),
+      "amplifier.postNote": () => ({ delivered: false }),
     });
 
     const result = await check(ctx, BASE);
@@ -209,7 +209,7 @@ describe("checkPostsImpl", () => {
     await check(ctx, BASE);
 
     const names = calls.map((c) => c.name);
-    expect(names.indexOf("kv.lock")).toBeLessThan(names.indexOf("slack.postMessage"));
+    expect(names.indexOf("kv.lock")).toBeLessThan(names.indexOf("amplifier.postNote"));
   });
 
   it("releases the claim when the Slack post fails", async () => {
@@ -217,7 +217,7 @@ describe("checkPostsImpl", () => {
       "typefully.listPublished": () => ({
         posts: [post("1", "2026-09-04T15:30:00Z", ["x"])],
       }),
-      "slack.postMessage": () => {
+      "amplifier.postNote": () => {
         throw new Error("slack down");
       },
     });
@@ -237,7 +237,7 @@ describe("checkPostsImpl", () => {
 
     const result = await check(ctx, { ...BASE, dryRun: true });
 
-    expect(calls.filter((c) => c.name === "slack.postMessage")).toEqual([]);
+    expect(calls.filter((c) => c.name === "amplifier.postNote")).toEqual([]);
     expect(calls.filter((c) => c.name === "kv.unlock")).toHaveLength(1);
     expect(result.dryRun).toBe(true);
     expect(result.notified).toBe(0);
@@ -341,7 +341,7 @@ function kvStore(startMs: number) {
 /** A run against a shared Key Value, recording the Slack posts it made. */
 function runAt(kv: ReturnType<typeof kvStore>, posts: PublishedPost[], slackLog: string[][]) {
   kv.handlers["typefully.listPublished"] = () => ({ posts });
-  kv.handlers["slack.postMessage"] = (input) => {
+  kv.handlers["amplifier.postNote"] = (input) => {
     slackLog.push([String(input.markdown)]);
     return { delivered: true };
   };
@@ -418,7 +418,7 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
       },
     };
     handlers["typefully.listPublished"] = () => ({ posts });
-    handlers["slack.postMessage"] = (input: any) => {
+    handlers["amplifier.postNote"] = (input: any) => {
       slack.push([String(input.markdown)]);
       return { delivered: true };
     };
@@ -442,7 +442,7 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
     const crashing = runCtx({
       ...kv.handlers,
       "typefully.listPublished": () => ({ posts }),
-      "slack.postMessage": () => {
+      "amplifier.postNote": () => {
         throw new Error("instance died");
       },
       // A crash leaves the in-flight lock behind, so no unlock runs.
@@ -470,7 +470,7 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
 
     const result = await check(ctx, BASE);
 
-    const md = calls.find((c) => c.name === "slack.postMessage")?.input.markdown ?? "";
+    const md = calls.find((c) => c.name === "amplifier.postNote")?.input.markdown ?? "";
     expect(md.startsWith("Something shipped. Please amplify!")).toBe(true);
     expect(result.notes[0]?.summarized).toBe(true);
   });
@@ -514,7 +514,7 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
 
     const result = await check(ctx, BASE);
 
-    const md = calls.find((c) => c.name === "slack.postMessage")?.input.markdown ?? "";
+    const md = calls.find((c) => c.name === "amplifier.postNote")?.input.markdown ?? "";
     expect(md).toContain("_(Summarization LLM call failed: 401 invalid x-api-key)_");
     expect(md).toContain("> preview 1");
     expect(result.notified).toBe(1);
@@ -531,7 +531,7 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
     await check(ctx, { ...BASE, dryRun: true });
 
     expect(calls.filter((c) => c.name === "llm.complete")).toHaveLength(1);
-    expect(calls.filter((c) => c.name === "slack.postMessage")).toHaveLength(0);
+    expect(calls.filter((c) => c.name === "amplifier.postNote")).toHaveLength(0);
   });
 
   it("summarizes once per note, not once per draft", async () => {
