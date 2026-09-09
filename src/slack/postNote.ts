@@ -4,11 +4,9 @@ import {
   SLACK_RETRY,
   webApiPort,
   webhookPort,
-  type FetchLike,
   type PostMessageInput,
   type PostMessageResult,
   type SlackDeps,
-  type WebFetchLike,
 } from "@render-lab/tasks-slack";
 
 /**
@@ -24,10 +22,12 @@ function withUnfurlOff(body: string): string {
   return JSON.stringify({ ...(JSON.parse(body) as Record<string, unknown>), ...UNFURL_OFF });
 }
 
-const webFetch: WebFetchLike = (url, init) =>
-  fetch(url, { ...init, body: withUnfurlOff(init.body) });
-
-const webhookFetch: FetchLike = (url, init) =>
+/**
+ * `WebFetchLike` and `FetchLike` take the same `init` shape and differ only in
+ * the response shape (`WebFetchLike` also requires `json()`), so one function
+ * satisfies both without a cast.
+ */
+const unfurlOffFetch = (url: string, init: { body: string }) =>
   fetch(url, { ...init, body: withUnfurlOff(init.body) });
 
 /**
@@ -36,8 +36,8 @@ const webhookFetch: FetchLike = (url, init) =>
  */
 function slackDeps(env: NodeJS.ProcessEnv): SlackDeps {
   return {
-    slack: webhookPort({ fetchImpl: webhookFetch, env }),
-    ...(env.SLACK_BOT_TOKEN ? { web: webApiPort({ fetchImpl: webFetch, env }) } : {}),
+    slack: webhookPort({ fetchImpl: unfurlOffFetch, env }),
+    ...(env.SLACK_BOT_TOKEN ? { web: webApiPort({ fetchImpl: unfurlOffFetch, env }) } : {}),
   };
 }
 
