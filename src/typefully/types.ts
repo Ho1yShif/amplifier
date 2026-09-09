@@ -34,9 +34,9 @@ export interface PublishedPost {
 export interface TypefullyDraft {
   id?: string | number;
   preview?: string;
-  /** Not read. `mapDraft` decides a platform published from its own timestamp field, not this. */
+  /** Not read. `mapDraft` decides a platform published from its own timestamp field. */
   status?: string;
-  /** Not read. `mapDraft` uses the per-platform `*_post_published_at` fields instead. */
+  /** Not read. `mapDraft` uses the per-platform `*_post_published_at` fields to decide. */
   published_at?: string | null;
   share_url?: string | null;
   /** Not read. `mapDraft` uses `x_post_published_at` to decide whether X published. */
