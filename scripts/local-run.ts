@@ -7,8 +7,8 @@
  *
  * The argument is how many runs to do in a row. Two is the interesting number:
  * the first reports notified 2, the second reports notified 0 and skipped 2,
- * which is the announce-once guarantee holding across runs. That is plan.md
- * Task 10 check 4, run without deploying and without a Typefully key.
+ * which proves the announce-once guarantee holds across runs, without
+ * deploying and without a Typefully key.
  *
  * localCtx executes each chained task in this process with no retries and no
  * timeouts, so this checks the wiring and the Key Value state, not durability.
