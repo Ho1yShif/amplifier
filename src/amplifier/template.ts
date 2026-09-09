@@ -52,7 +52,8 @@ function linkMrkdwn(link: PlatformLink, shareUrl: string | undefined): string {
 /**
  * Build the Slack message for one announcement.
  *
- * With a summary, the note is that one line and a bulleted link per platform.
+ * With a summary, the note is that one line and a link per platform. The links
+ * are bulleted only when there are two, because one link is not a list.
  * Without one, it falls back to the call to action, the reason the summary is
  * missing, and the draft's preview as a quote — the preview is the only content
  * signal left, so it is worth the extra lines.
@@ -63,8 +64,12 @@ function linkMrkdwn(link: PlatformLink, shareUrl: string | undefined): string {
  */
 export function renderNote(group: PostGroup, opts: RenderNoteOptions = {}): PostMessageInput {
   const links = orderedLinks(group);
-  // Slack mrkdwn has no list syntax, so the bullet is a literal character.
-  const linkList = links.map((l) => `• ${linkMrkdwn(l, group.shareUrl)}`).join("\n");
+  // Slack mrkdwn has no list syntax, so the bullet is a literal character. One
+  // link needs no list, so it goes in on its own.
+  const linkList =
+    links.length > 1
+      ? links.map((l) => `• ${linkMrkdwn(l, group.shareUrl)}`).join("\n")
+      : links.map((l) => linkMrkdwn(l, group.shareUrl)).join("");
   const summary = opts.summary?.trim();
   const lead = summary || (opts.callToAction ?? DEFAULT_CALL_TO_ACTION);
 

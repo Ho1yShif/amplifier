@@ -138,6 +138,32 @@ describe("renderNote", () => {
     expect(md.startsWith("New Render social post!")).toBe(true);
   });
 
+  it("drops the bullet when only one platform has a link", () => {
+    const single: PostGroup = {
+      ...crossPost,
+      links: [
+        { platform: "x", url: "https://x.com/render/status/1", publishedAt: crossPost.publishedAt },
+      ],
+    };
+    const md = renderNote(single, { summary: "Cold starts are 40% faster." }).markdown ?? "";
+    expect(md).toContain("<https://x.com/render/status/1|X post>");
+    expect(md).not.toContain("•");
+  });
+
+  it("drops the bullet on a single pending link", () => {
+    const pending: PostGroup = {
+      ...crossPost,
+      links: [{ platform: "linkedin", publishedAt: crossPost.publishedAt }],
+    };
+    expect(renderNote(pending).markdown).not.toContain("•");
+  });
+
+  it("keeps the bullets when both platforms have links", () => {
+    const md = renderNote(crossPost, { summary: "Cold starts are 40% faster." }).markdown ?? "";
+    expect(md).toContain("• <https://linkedin.com/feed/update/2|LinkedIn post>");
+    expect(md).toContain("• <https://x.com/render/status/1|X post>");
+  });
+
   it("sets the notification fallback to the summary and no URL", () => {
     const note = renderNote(crossPost, { summary: "Cold starts are 40% faster." });
     expect(note.text).toBe("Cold starts are 40% faster.");
