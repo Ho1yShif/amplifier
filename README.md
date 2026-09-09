@@ -52,9 +52,35 @@ This runs every task in one process with no retries and no timeouts, so it check
 
 1. Create a Workflow service in the Render Dashboard from this repo, with build `pnpm install && pnpm build` and start `node dist/main.js`. Put it in project `amplifier`, environment `Production`, region Oregon, the same as the services in `render.yaml`. The Key Value instance is reachable only over the private network within its own environment, so a Workflow service anywhere else fails to connect. Note the service's slug.
 2. Apply `render.yaml` to create the cron job and the Key Value instance. Set `RENDER_API_KEY`, and set `WORKFLOW_SLUG` to the slug from step 1.
-3. On the Workflow service, set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, `SLACK_BOT_TOKEN`, `SLACK_CHANNEL`, `DRY_RUN=true`, and `REDIS_URL` (the `amplifier-kv` internal connection string).
+3. On the Workflow service, set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, a Slack credential (see below), `DRY_RUN=true`, and `REDIS_URL` (the `amplifier-kv` internal connection string).
 4. Leave `DRY_RUN=true` for a couple of cron runs and read the Workflow logs.
 5. Set `DRY_RUN=false`.
+
+## Slack credentials
+
+Optionally, create a Slack channel for testing. If not, prepare a the Slack channel you will use in production and ensure it's ready to test below.
+
+`slack-app-manifest.yaml` defines the app. At <https://api.slack.com/apps>, choose
+**Create New App > From a manifest > Continue**, pick the workspace, and paste the file as YAML. Click **Next > Create and Install**.
+
+The manifest requests both `chat:write` and `incoming-webhook`, so either credential
+below works. To change the app later, edit the file and paste it into **App Manifest**
+on the app's settings page.
+
+Slack should install the app to the workspace for you. Slack asks which channel the webhook posts to,
+and both credentials show up on the app's pages afterwards. Set one of these two:
+
+- **`SLACK_WEBHOOK_URL`** is the URL on the app's **Incoming Webhooks** page. It is
+  locked to the channel you picked during install, so `SLACK_CHANNEL` is ignored and
+  switching channels means a new webhook.
+- **`SLACK_BOT_TOKEN`** is the `xoxb-` token on **OAuth & Permissions**. It makes
+  `SLACK_CHANNEL` pick the channel, and you `/invite` the bot there first.
+
+If neither is set, `slack.postMessage` logs to the console and
+reports `delivered: false`.
+
+Both credentials are minted during install, so neither can be committed alongside the
+manifest.
 
 ## Configuration
 
@@ -63,8 +89,9 @@ This runs every task in one process with no retries and no timeouts, so it check
 | `TYPEFULLY_API_KEY`              | —         | —     | Required. Typefully Settings > Integrations.                                     |
 | `TYPEFULLY_SOCIAL_SET_ID`        | —         | —     | Required. `GET /v2/social-sets` lists them.                                      |
 | `TYPEFULLY_BASE_URL`             | Typefully | —     | Local stub only. The API key goes to whatever host this names.                   |
-| `SLACK_BOT_TOKEN`                | —         | —     | Required for `SLACK_CHANNEL` to be honored.                                      |
-| `SLACK_CHANNEL`                  | —         | —     | Channel the note goes to.                                                        |
+| `SLACK_WEBHOOK_URL`              | —         | —     | Incoming webhook. Locked to the channel you created it for.                      |
+| `SLACK_BOT_TOKEN`                | —         | —     | Bot token. Required for `SLACK_CHANNEL` to be honored.                           |
+| `SLACK_CHANNEL`                  | —         | —     | Channel the note goes to. Needs `SLACK_BOT_TOKEN`.                               |
 | `REDIS_URL`                      | —         | —     | Required. The `amplifier-kv` internal connection string.                         |
 | `DRY_RUN`                        | `true`    | —     | Set to `false` to post to Slack.                                                 |
 | `AMPLIFIER_LOOKBACK_MINUTES`     | `90`      | ≥ 1   | Wider than the 30-minute schedule, so a skipped run catches up.                  |

@@ -1,0 +1,20 @@
+# Slack app definition for amplifier. See the README for how to apply it.
+# Both scopes are requested so either credential works: chat:write for
+# SLACK_BOT_TOKEN, incoming-webhook for SLACK_WEBHOOK_URL.
+display_information:
+  name: Amplifier
+  description: Posts a Slack note when a Render post goes live on X or LinkedIn.
+  background_color: "#5a4dc4"
+features:
+  bot_user:
+    display_name: amplifier
+    always_online: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - incoming-webhook
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
