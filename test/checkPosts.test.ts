@@ -29,6 +29,11 @@ function runCtx(overrides: TaskHandlers = {}) {
     "kv.get": () => ({ value: null }),
     "kv.set": () => ({ ok: true }),
     "slack.postMessage": () => ({ delivered: true }),
+    "llm.complete": () => ({
+      text: "Something shipped. Please amplify!",
+      model: "m",
+      stopReason: "end",
+    }),
     ...overrides,
   });
 }
@@ -455,5 +460,92 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
 
     expect(run2.notified).toBe(1);
     expect(slack).toHaveLength(1);
+  });
+  it("leads the note with the summary", async () => {
+    const { ctx, calls } = runCtx({
+      "typefully.listPublished": () => ({
+        posts: [post("1", "2026-09-04T15:30:00Z", ["x", "linkedin"])],
+      }),
+    });
+
+    const result = await check(ctx, BASE);
+
+    const md = calls.find((c) => c.name === "slack.postMessage")?.input.markdown ?? "";
+    expect(md.startsWith("Something shipped. Please amplify!")).toBe(true);
+    expect(result.notes[0]?.summarized).toBe(true);
+  });
+
+  it("summarizes before it claims the group", async () => {
+    const { ctx, calls } = runCtx({
+      "typefully.listPublished": () => ({
+        posts: [post("1", "2026-09-04T15:30:00Z", ["x"])],
+      }),
+    });
+
+    await check(ctx, BASE);
+
+    const names = calls.map((c) => c.name);
+    expect(names.indexOf("llm.complete")).toBeLessThan(names.indexOf("kv.lock"));
+  });
+
+  it("passes the configured model through", async () => {
+    const { ctx, calls } = runCtx({
+      "typefully.listPublished": () => ({
+        posts: [post("1", "2026-09-04T15:30:00Z", ["x"])],
+      }),
+    });
+
+    await check(ctx, { ...BASE, summaryModel: "anthropic/claude-haiku-4-5" });
+
+    expect(calls.find((c) => c.name === "llm.complete")?.input.model).toBe(
+      "anthropic/claude-haiku-4-5",
+    );
+  });
+
+  it("still posts, with the reason, when the summary fails", async () => {
+    const { ctx, calls } = runCtx({
+      "typefully.listPublished": () => ({
+        posts: [post("1", "2026-09-04T15:30:00Z", ["x"])],
+      }),
+      "llm.complete": () => {
+        throw new Error("401 invalid x-api-key");
+      },
+    });
+
+    const result = await check(ctx, BASE);
+
+    const md = calls.find((c) => c.name === "slack.postMessage")?.input.markdown ?? "";
+    expect(md).toContain("_(Summarization LLM call failed: 401 invalid x-api-key)_");
+    expect(md).toContain("> preview 1");
+    expect(result.notified).toBe(1);
+    expect(result.notes[0]?.summarized).toBe(false);
+  });
+
+  it("summarizes in a dry run so the logged note is the real one", async () => {
+    const { ctx, calls } = runCtx({
+      "typefully.listPublished": () => ({
+        posts: [post("1", "2026-09-04T15:30:00Z", ["x"])],
+      }),
+    });
+
+    await check(ctx, { ...BASE, dryRun: true });
+
+    expect(calls.filter((c) => c.name === "llm.complete")).toHaveLength(1);
+    expect(calls.filter((c) => c.name === "slack.postMessage")).toHaveLength(0);
+  });
+
+  it("summarizes once per note, not once per draft", async () => {
+    const { ctx, calls } = runCtx({
+      "typefully.listPublished": () => ({
+        posts: [
+          post("1", "2026-09-04T15:30:00Z", ["x"]),
+          post("2", "2026-09-04T15:33:00Z", ["linkedin"]),
+        ],
+      }),
+    });
+
+    await check(ctx, { ...BASE, groupWindowMinutes: 10 });
+
+    expect(calls.filter((c) => c.name === "llm.complete")).toHaveLength(1);
   });
 });

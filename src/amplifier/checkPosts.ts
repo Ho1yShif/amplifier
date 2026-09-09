@@ -7,6 +7,7 @@ import type { Platform } from "../typefully/types.js";
 import { groupPosts } from "./group.js";
 import { announcedDraftIds, claimGroup, isClaimed, markAnnounced, releaseGroup } from "./seen.js";
 import { notePlatforms, renderNote } from "./template.js";
+import { isSummary, summarizeGroup } from "../summary/summarize.js";
 import { withinWindow } from "./window.js";
 
 /** One announcement's outcome. */
@@ -15,6 +16,8 @@ export interface NoteResult {
   platforms: Platform[];
   /** false in dry run, and false when Slack fell back to the console. */
   delivered: boolean;
+  /** Whether the model wrote this note's lead line. False means the fallback text. */
+  summarized: boolean;
 }
 
 export interface CheckPostsResult {
@@ -78,6 +81,19 @@ export async function checkPostsImpl(
   let skipped = announced.size;
 
   for (const group of groups) {
+    // Before the claim, not inside it. LLM_RETRY spends about 62 seconds of
+    // backoff across 5 retries plus six call durations, and the in-flight lock
+    // lives 300 seconds — inside the claim, the lock can expire mid-flight and
+    // the next run re-posts the note. The cost is one wasted call when two runs
+    // race the same group.
+    const summary = await summarizeGroup(ctx, group, { model: config.summaryModel });
+    if (!isSummary(summary)) {
+      console.error(
+        `[amplifier] No summary for ${group.draftIds.join(", ")}: ${summary.error}. ` +
+          `Posting the fallback note.`,
+      );
+    }
+
     const outcome = await claimGroup(ctx, group, runToken);
     if (!isClaimed(outcome)) {
       skipped += group.draftIds.length;
@@ -88,13 +104,19 @@ export async function checkPostsImpl(
     const message = renderNote(group, {
       ...(config.slackChannel ? { channel: config.slackChannel } : {}),
       callToAction: config.callToAction,
+      ...(isSummary(summary) ? { summary: summary.line } : { summaryError: summary.error }),
     });
     const platforms = notePlatforms(group);
 
     if (config.dryRun) {
       console.log(`[dry run] would post:\n${message.markdown ?? message.text}`);
       await releaseGroup(ctx, claims);
-      notes.push({ draftIds: group.draftIds, platforms, delivered: false });
+      notes.push({
+        draftIds: group.draftIds,
+        platforms,
+        delivered: false,
+        summarized: isSummary(summary),
+      });
       continue;
     }
 
@@ -118,7 +140,12 @@ export async function checkPostsImpl(
       );
     }
     await releaseGroup(ctx, claims);
-    notes.push({ draftIds: group.draftIds, platforms, delivered });
+    notes.push({
+      draftIds: group.draftIds,
+      platforms,
+      delivered,
+      summarized: isSummary(summary),
+    });
   }
 
   return {
