@@ -1,1098 +1,385 @@
-# LLM Post Summary Implementation Plan
+# Cleanup Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to work through this task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace amplifier's static Slack lead line with a one-line summary of the post, written by Claude Sonnet 5.
+**Goal:** Remove dead code, collapse the repeated platform and fetch logic, fix one real config bug, and bring the README up to date with an ASCII architecture diagram.
 
-**Architecture:** A new `src/summary/` sibling holds the prompt file, the prompt loader, and a `summarizeGroup` wrapper around `llm.complete` from `@render-lab/tasks-llm`. It returns a line or a reason and never throws. `src/amplifier/` keeps working on `PostGroup`, and `template.ts` stays pure and synchronous: it takes the summary as an option. `checkPosts.ts` calls the summarizer before it claims the group.
+**Baseline:** `pnpm test` passes 127 tests across 13 files and `pnpm typecheck` is clean as of the commit this plan was written against (`6271ebf`). Every task below must end with both still passing.
 
-**Tech Stack:** TypeScript, `@renderinc/sdk` Workflows 1.0, `@render-lab/tasks-llm` 0.8.1 (which wraps `@anthropic-ai/sdk`), vitest.
+**Not in scope:** No change to the announce-once guarantee, the dedupe unit, the Key Value key names, the cron schedule, or the note's rendered output. The one exception is Task 7, which changes what a blank `AMPLIFIER_CALL_TO_ACTION` produces.
 
-**Spec:** This document. The design was agreed in the session that wrote it; the Design section below is the spec the tasks argue from.
+## What this plan replaces
 
-## Design
-
-The note today opens with `AMPLIFIER_CALL_TO_ACTION` and quotes Typefully's 100-character `preview`. After this change, a successful summary is the entire lead line and the quote is gone, matching the shape of the real `#amplify` posts in `examples.md`:
-
-```
-Cursor Origin is now a supported Git provider on Render. Help spread the word!
-
-• <https://linkedin.com/…|LinkedIn post>
-• <https://x.com/…|X post>
-```
-
-When the call fails, the note still goes out. It carries the old lead line, the reason, and the preview it would have summarized:
-
-```
-New Render social post! Please like and share when you have a minute
-_(Summarization LLM call failed: 401 invalid x-api-key)_
-
-> We cut cold starts on Render by 40%.
-
-• <https://linkedin.com/…|LinkedIn post>
-• <https://x.com/…|X post>
-```
-
-Four decisions the tasks depend on:
-
-**The summarizer runs before `claimGroup`.** `LLM_RETRY` in `tasks-llm` is 5 retries backing off 2s, 4s, 8s, 16s, 32s, so a bad provider day spends about 62 seconds of backoff plus six call durations. `INFLIGHT_TTL_SECONDS` is 300. Inside the claim, that lock can expire mid-flight and the next cron run re-posts the note. Running first costs one wasted Sonnet call when two runs race the same group, which is the cheaper failure.
-
-**Truncation counts as a failure.** Sonnet 5's only on-mode is adaptive thinking, and `tasks-llm` sends no `thinking` parameter, so thinking tokens come out of `max_tokens`. The budget is 2048 for a one-line answer, and `stopReason === "length"` or empty text falls back rather than posting a half sentence.
-
-**No bare URLs anywhere in the note.** Both bullets hyperlink the text `LinkedIn post` and `X post`. The `text` field, which is Slack's notification fallback, becomes the lead line alone. It carries the joined URLs today, and per the link-preview thread in the handoff that may be where the unfurl cards come from.
-
-**`DEFAULT_SUMMARY_MODEL` lives in `src/summary/model.ts`, not in `summarize.ts`.** `config.ts` needs the constant, and `cron-trigger.ts` imports `config.ts`. Importing `summarize.ts` there would register `llm.complete` and pull `@anthropic-ai/sdk` into the cron service's process, which only dispatches runs.
-
-## Global Constraints
-
-- Default model is `anthropic/claude-sonnet-5`. The `anthropic/` prefix is required: `tasks-llm` routes on it and throws on a bare model id.
-- `ANTHROPIC_API_KEY` is never read by `config.ts`. The Anthropic SDK reads it inside the call, which keeps the credentials-are-lazy invariant from the handoff.
-- Dedupe stays per draft, not per note. Do not move the summarizer between the Slack call and the `markAnnounced` write.
-- `AMPLIFIER_LIMIT` is still the concurrency ceiling. The summarizer adds one sequential `ctx.run` per group, not per draft.
-- Slack labels are exactly `LinkedIn post` and `X post`, LinkedIn first.
-- Pin the new dependency to an exact version, matching the other `@render-lab/*` entries.
-- `pnpm test` and `pnpm typecheck` pass at the end of every task.
+`plan.md` used to hold the completed LLM-summary plan, all 43 steps checked. That file is now this one. Two places still point at the old content and are fixed in Task 1.
 
 ---
 
-### Task 1: The prompt file and its loader
+## Group A: dead code and stale references
+
+### Task 1: Fix the two references to the old plan.md
 
 **Files:**
-- Create: `prompts/post-summary.md`
-- Create: `src/summary/prompt.ts`
-- Create: `src/summary/model.ts`
-- Modify: `package.json` (add the dependency)
-- Modify: `.gitignore` (only if `examples.md` is ignored; check first)
-- Test: `test/summaryPrompt.test.ts`
 
-**Interfaces:**
-- Consumes: nothing.
-- Produces: `loadPrompt(): string`, `clearPromptCache(): void`, `DEFAULT_SUMMARY_MODEL: string`, `SUMMARY_MAX_TOKENS: number`.
+- Modify: `.prettierignore`
+- Modify: `scripts/local-run.ts`
 
-- [x] **Step 1: Install the dependency**
+`.prettierignore` line 3 reads "A record of a completed plan, kept as it was written." That is no longer what `plan.md` is. Keep `plan.md` ignored so the hand-wrapped prose survives, and replace the comment with one that describes the working cleanup plan.
+
+`scripts/local-run.ts` line 10 says the two-run check "is plan.md Task 10 check 4". No such task exists now. Say what the check proves without pointing at a task number.
+
+**Verify:**
 
 ```bash
-pnpm add @render-lab/tasks-llm@0.8.1
+pnpm format:check
+grep -rn "plan.md" .prettierignore scripts/
 ```
 
-Check `package.json` afterwards: the entry must read `"@render-lab/tasks-llm": "0.8.1"` with no caret, like the other `@render-lab/*` dependencies. Fix it by hand and re-run `pnpm install` if pnpm added one. This pulls in `@anthropic-ai/sdk`, `openai`, and `ioredis` as transitive dependencies.
+- [ ] Task 1 complete
 
-- [x] **Step 2: Commit `examples.md`**
-
-It is untracked today and the prompt is derived from it, so it belongs in the repo as the human-facing source.
-
-```bash
-git status --short examples.md
-git add examples.md
-```
-
-If `git status` reports it as ignored, remove the pattern from `.gitignore` first.
-
-- [x] **Step 3: Write the prompt file**
-
-Create `prompts/post-summary.md`. The examples are copied in rather than read from `examples.md`, so the file is self-contained at runtime.
-
-````markdown
-# Post summary prompt
-
-You write the one-line Slack message that tells Render's team a new social post
-is live and asks them to amplify it.
-
-You are given the text of one Render social post, and which platforms it went
-live on.
-
-Write exactly one line:
-
-- Name what shipped, in the present tense.
-- Then ask the team to amplify, in a short clause.
-- Plain English. Short words. No emoji, no hashtags, no links, no markdown.
-- Under 120 characters where the post allows it.
-- Do not mention the platforms, the word "post", or that you are summarizing.
-- Return the line and nothing else. No preamble, no quotes around it.
-
-## Examples
-
-These are real messages from the #amplify channel. Match their shape.
-
-1. Cursor Origin is now a supported Git provider on Render. Help spread the word!
-2. Please like/share our new customer story for OpenAI!
-3. We've officially launched our partnership with TanStack!
-4. Social posts are out for our much anticipated Deploys page. Please help amplify.
-5. New plan IDs, what you see is what you get.
-6. Social posts announcing our new compute plans are up!
-7. Please amplify socials around Mac's monumental blog post!
-8. We are hosting a hackathon with OpenAI. Please amplify!
-9. Our newest customer story with Ferndesk (Railway migration) is up on socials.
-10. We just launched our OSS integration with GitNexus! Please amplify.
-````
-
-- [x] **Step 4: Write the model constants**
-
-Create `src/summary/model.ts`. It imports nothing, so `config.ts` can read these without registering a task.
-
-```ts
-// Model settings for the post summary. Kept apart from summarize.ts so that
-// config.ts — and through it cron-trigger.ts — can read them without importing
-// llm.complete and pulling @anthropic-ai/sdk into the cron service's process.
-
-/**
- * Default summarizer. Sonnet 5 is the newest Sonnet, and the `anthropic/`
- * prefix is what tasks-llm routes on: a bare model id throws.
- */
-export const DEFAULT_SUMMARY_MODEL = "anthropic/claude-sonnet-5";
-
-/**
- * Output budget for a one-line answer.
- *
- * Sonnet 5's only on-mode is adaptive thinking and tasks-llm sends no thinking
- * parameter, so thinking tokens come out of this budget. One line needs a
- * fraction of 2048; the rest is headroom for the thinking.
- */
-export const SUMMARY_MAX_TOKENS = 2048;
-```
-
-- [x] **Step 5: Write the failing test**
-
-Create `test/summaryPrompt.test.ts`:
-
-```ts
-import { describe, expect, it, beforeEach } from "vitest";
-import { clearPromptCache, loadPrompt } from "../src/summary/prompt.js";
-
-describe("loadPrompt", () => {
-  beforeEach(clearPromptCache);
-
-  it("reads the prompt file", () => {
-    expect(loadPrompt()).toContain("Write exactly one line");
-  });
-
-  it("carries the examples", () => {
-    expect(loadPrompt()).toContain("Cursor Origin is now a supported Git provider on Render");
-  });
-
-  it("returns the same string on a second call", () => {
-    expect(loadPrompt()).toBe(loadPrompt());
-  });
-});
-```
-
-- [x] **Step 6: Run the test to verify it fails**
-
-Run: `pnpm vitest run test/summaryPrompt.test.ts`
-Expected: FAIL, cannot resolve `../src/summary/prompt.js`.
-
-- [x] **Step 7: Write the loader**
-
-Create `src/summary/prompt.ts`:
-
-```ts
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
-/**
- * The prompt file, relative to this module. `../../prompts/` resolves to the
- * repo root from both `src/summary/` and `dist/summary/`, so tsc needs no step
- * to copy the file into the build.
- */
-const PROMPT_URL = new URL("../../prompts/post-summary.md", import.meta.url);
-
-let cached: string | undefined;
-
-/** The summary prompt, read once per process. */
-export function loadPrompt(): string {
-  return (cached ??= readFileSync(fileURLToPath(PROMPT_URL), "utf8"));
-}
-
-/** Drop the cached prompt. For tests. */
-export function clearPromptCache(): void {
-  cached = undefined;
-}
-```
-
-- [x] **Step 8: Run the test to verify it passes**
-
-Run: `pnpm vitest run test/summaryPrompt.test.ts`
-Expected: PASS, 3 tests.
-
-- [x] **Step 9: Typecheck and commit**
-
-```bash
-pnpm typecheck
-git add package.json pnpm-lock.yaml examples.md prompts/post-summary.md src/summary/ test/summaryPrompt.test.ts
-git commit -m "feat(summary): add the post-summary prompt and its loader"
-```
-
----
-
-### Task 2: `summarizeGroup`
+### Task 2: Say why the four unread Typefully fields are declared
 
 **Files:**
-- Create: `src/summary/summarize.ts`
-- Test: `test/summarize.test.ts`
 
-**Interfaces:**
-- Consumes: `loadPrompt()` from Task 1, `DEFAULT_SUMMARY_MODEL` and `SUMMARY_MAX_TOKENS` from Task 1, `PostGroup` from `src/amplifier/group.ts`.
-- Produces:
-  - `type SummaryOutcome = { line: string } | { error: string }`
-  - `isSummary(outcome: SummaryOutcome): outcome is { line: string }`
-  - `summarizeGroup(ctx: TaskContext, group: PostGroup, opts?: { model?: string }): Promise<SummaryOutcome>`
+- Modify: `src/typefully/types.ts`
 
-- [x] **Step 1: Write the failing test**
+`TypefullyDraft` is documented as "the subset of Typefully's draft response amplifier reads", but `mapDraft` reads only `id`, `preview`, `share_url`, and the four `*_post_published_at` / `*_published_url` fields. `status`, `published_at`, `x_post_enabled`, and `linkedin_post_enabled` are never read.
 
-Create `test/summarize.test.ts`. The `taskCtx` helper dispatches `ctx.run` by task name and throws on a name it was not given, so a test that reaches an unstubbed task fails loudly.
+Keep all four. `test/map.test.ts` sets `x_post_enabled: true` with no publish timestamp to prove the mapper ignores it, and `test/listPublished.test.ts` uses `status: "scheduled"`. Both are the confusion this interface should prevent. Rewrite the doc comment so it says the interface covers the fields amplifier reads plus the ones it deliberately ignores, and put a one-line comment on the `*_enabled` pair pointing at `mapDraft`.
 
-```ts
-import { describe, expect, it } from "vitest";
-import type { PostGroup } from "../src/amplifier/group.js";
-import { isSummary, summarizeGroup } from "../src/summary/summarize.js";
-import { taskCtx, type TaskHandlers } from "./support/taskCtx.js";
+**Verify:** `pnpm typecheck && pnpm test`
 
-const group: PostGroup = {
-  draftIds: ["1"],
-  previews: ["We cut cold starts on Render by 40%."],
-  publishedAt: "2026-09-04T15:00:00Z",
-  links: [
-    {
-      platform: "linkedin",
-      url: "https://linkedin.com/feed/update/2",
-      publishedAt: "2026-09-04T15:00:00Z",
-    },
-    { platform: "x", url: "https://x.com/render/status/1", publishedAt: "2026-09-04T15:02:00Z" },
-  ],
-};
+- [ ] Task 2 complete
 
-function ctxFor(overrides: TaskHandlers = {}) {
-  return taskCtx({
-    "llm.complete": () => ({
-      text: "Cold starts on Render are 40% faster. Please amplify!",
-      model: "claude-sonnet-5",
-      stopReason: "end",
-    }),
-    ...overrides,
-  });
-}
-
-describe("summarizeGroup", () => {
-  it("returns the model's line", async () => {
-    const { ctx } = ctxFor();
-    const outcome = await summarizeGroup(ctx, group);
-    expect(outcome).toEqual({ line: "Cold starts on Render are 40% faster. Please amplify!" });
-  });
-
-  it("sends the prompt file as the system prompt and the previews as the user prompt", async () => {
-    const { ctx, calls } = ctxFor();
-    await summarizeGroup(ctx, group);
-    const input = calls[0]?.input;
-    expect(input.system).toContain("Write exactly one line");
-    expect(input.prompt).toContain("We cut cold starts on Render by 40%.");
-    expect(input.prompt).toContain("LinkedIn and X");
-  });
-
-  it("defaults to the newest Sonnet and gives thinking room", async () => {
-    const { ctx, calls } = ctxFor();
-    await summarizeGroup(ctx, group);
-    expect(calls[0]?.input.model).toBe("anthropic/claude-sonnet-5");
-    expect(calls[0]?.input.maxTokens).toBe(2048);
-  });
-
-  it("takes a model override", async () => {
-    const { ctx, calls } = ctxFor();
-    await summarizeGroup(ctx, group, { model: "anthropic/claude-haiku-4-5" });
-    expect(calls[0]?.input.model).toBe("anthropic/claude-haiku-4-5");
-  });
-
-  it("reports the error instead of throwing when the task fails", async () => {
-    const { ctx } = ctxFor({
-      "llm.complete": () => {
-        throw new Error("401 invalid x-api-key");
-      },
-    });
-    const outcome = await summarizeGroup(ctx, group);
-    expect(outcome).toEqual({ error: "401 invalid x-api-key" });
-  });
-
-  it("treats a truncated answer as a failure", async () => {
-    const { ctx } = ctxFor({
-      "llm.complete": () => ({ text: "Cold starts on", model: "m", stopReason: "length" }),
-    });
-    const outcome = await summarizeGroup(ctx, group);
-    expect(isSummary(outcome)).toBe(false);
-    expect(outcome).toHaveProperty("error", expect.stringContaining("2048"));
-  });
-
-  it("treats empty text as a failure", async () => {
-    const { ctx } = ctxFor({
-      "llm.complete": () => ({ text: "   ", model: "m", stopReason: "end" }),
-    });
-    expect(await summarizeGroup(ctx, group)).toEqual({ error: "the model returned no text" });
-  });
-
-  it("keeps only the first line of a multi-line answer", async () => {
-    const { ctx } = ctxFor({
-      "llm.complete": () => ({
-        text: "\nCold starts are faster. Please amplify!\n\nAlso: unrelated.",
-        model: "m",
-        stopReason: "end",
-      }),
-    });
-    expect(await summarizeGroup(ctx, group)).toEqual({
-      line: "Cold starts are faster. Please amplify!",
-    });
-  });
-
-  it("names both platforms of a grouped note and lists every preview", async () => {
-    const grouped: PostGroup = {
-      ...group,
-      draftIds: ["1", "2"],
-      previews: ["First draft text.", "Second draft text."],
-    };
-    const { ctx, calls } = ctxFor();
-    await summarizeGroup(ctx, grouped);
-    expect(calls[0]?.input.prompt).toContain("First draft text.");
-    expect(calls[0]?.input.prompt).toContain("Second draft text.");
-  });
-});
-```
-
-- [x] **Step 2: Run the test to verify it fails**
-
-Run: `pnpm vitest run test/summarize.test.ts`
-Expected: FAIL, cannot resolve `../src/summary/summarize.js`.
-
-- [x] **Step 3: Write the summarizer**
-
-Create `src/summary/summarize.ts`:
-
-```ts
-import { complete } from "@render-lab/tasks-llm";
-import type { TaskContext } from "@renderinc/sdk/workflows";
-import type { PostGroup } from "../amplifier/group.js";
-import type { Platform } from "../typefully/types.js";
-import { DEFAULT_SUMMARY_MODEL, SUMMARY_MAX_TOKENS } from "./model.js";
-import { loadPrompt } from "./prompt.js";
-
-/** How the platforms are named to the model, in the note's display order. */
-const PLATFORM_NAMES: Record<Platform, string> = { linkedin: "LinkedIn", x: "X" };
-const PLATFORM_ORDER: Platform[] = ["linkedin", "x"];
-
-export interface SummarizeOptions {
-  /** Provider-prefixed model id. Defaults to DEFAULT_SUMMARY_MODEL. */
-  model?: string;
-}
-
-/** A summary line, or the reason there is none. */
-export type SummaryOutcome = { line: string } | { error: string };
-
-export function isSummary(outcome: SummaryOutcome): outcome is { line: string } {
-  return "line" in outcome;
-}
-
-/** What the model is asked about: which platforms published, and the post text. */
-function userPrompt(group: PostGroup): string {
-  const present = new Set(group.links.map((l) => l.platform));
-  const platforms = PLATFORM_ORDER.filter((p) => present.has(p))
-    .map((p) => PLATFORM_NAMES[p])
-    .join(" and ");
-  const previews = group.previews
-    .filter((p) => p !== "")
-    .map((p) => `- ${p}`)
-    .join("\n");
-  return `Platforms: ${platforms}\n\nPost text:\n${previews}`;
-}
-
-/**
- * One line describing this announcement, or why there is none.
- *
- * Never throws. A dead provider must not cost an announcement, so every failure
- * comes back as `{ error }` and `renderNote` falls back to the template text.
- *
- * Call this before claiming the group. LLM_RETRY spends about 62 seconds of
- * backoff across 5 retries plus six call durations, and INFLIGHT_TTL_SECONDS is
- * 300 — inside the claim, that lock can expire mid-flight and the next run
- * re-posts the note.
- */
-export async function summarizeGroup(
-  ctx: TaskContext,
-  group: PostGroup,
-  opts: SummarizeOptions = {},
-): Promise<SummaryOutcome> {
-  const model = opts.model ?? DEFAULT_SUMMARY_MODEL;
-  try {
-    const { text, stopReason } = await ctx.run(complete, {
-      prompt: userPrompt(group),
-      system: loadPrompt(),
-      model,
-      maxTokens: SUMMARY_MAX_TOKENS,
-    });
-    if (stopReason === "length") {
-      return {
-        error: `the model hit its ${SUMMARY_MAX_TOKENS}-token budget, so the line is truncated`,
-      };
-    }
-    // The model is told to answer with one line. Take the first non-empty one
-    // rather than post a stray second paragraph into the channel.
-    const line = text
-      .split("\n")
-      .map((l) => l.trim())
-      .find((l) => l !== "");
-    if (!line) return { error: "the model returned no text" };
-    return { line };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
-  }
-}
-```
-
-- [x] **Step 4: Run the test to verify it passes**
-
-Run: `pnpm vitest run test/summarize.test.ts`
-Expected: PASS, 9 tests.
-
-- [x] **Step 5: Typecheck and commit**
-
-```bash
-pnpm typecheck
-git add src/summary/summarize.ts test/summarize.test.ts
-git commit -m "feat(summary): summarize a post group with llm.complete"
-```
-
----
-
-### Task 3: The summary in the Slack note
+### Task 3: Decide the fate of the `ping` task
 
 **Files:**
-- Modify: `src/amplifier/template.ts:15-19` (`RenderNoteOptions`), `src/amplifier/template.ts:48-75` (`renderNote`)
-- Test: `test/template.test.ts`
 
-**Interfaces:**
-- Consumes: nothing from Tasks 1 and 2. `renderNote` takes the summary as a plain string, so it stays pure and synchronous.
-- Produces: `RenderNoteOptions` gains `summary?: string` and `summaryError?: string`.
+- Modify: `src/main.ts` or `README.md`
 
-- [x] **Step 1: Write the failing tests**
+`src/main.ts` registers a zero-dependency `ping` task described as "handy for verifying the service is live", and `test/main.test.ts` covers it. Nothing in the README tells a deployer to use it.
 
-Add to `test/template.test.ts`, inside the existing `describe("renderNote")`:
+Keep it and add one line to the deployment steps: after the Workflow service is up, `render workflows start ping --input='[{}]'` confirms the registry loaded before any secret is set. If that command is wrong for a Workflow service, check `render workflows tasks list` first and use whatever the real invocation is. Do not guess at the syntax in the README.
 
-```ts
-it("uses the summary as the whole lead line", () => {
-  const md = renderNote(crossPost, { summary: "Cold starts are 40% faster. Please amplify!" })
-    .markdown ?? "";
-  expect(md.startsWith("Cold starts are 40% faster. Please amplify!")).toBe(true);
-  expect(md).not.toContain("New Render social post!");
-});
+**Verify:** `pnpm test`, and the README instruction matches a command that exists in `render workflows --help`.
 
-it("drops the preview quote when there is a summary", () => {
-  const md = renderNote(crossPost, { summary: "Cold starts are 40% faster." }).markdown ?? "";
-  expect(md).not.toContain("> We cut cold starts on Render by 40%.");
-});
-
-it("still links every platform under a summary", () => {
-  const md = renderNote(crossPost, { summary: "Cold starts are 40% faster." }).markdown ?? "";
-  expect(md).toContain("• <https://linkedin.com/feed/update/2|LinkedIn post>");
-  expect(md).toContain("• <https://x.com/render/status/1|X post>");
-});
-
-it("names the failure and keeps the quote when there is no summary", () => {
-  const md = renderNote(crossPost, { summaryError: "401 invalid x-api-key" }).markdown ?? "";
-  expect(md).toContain("_(Summarization LLM call failed: 401 invalid x-api-key)_");
-  expect(md).toContain("> We cut cold starts on Render by 40%.");
-  expect(md.startsWith("New Render social post!")).toBe(true);
-});
-
-it("sets the notification fallback to the summary and no URL", () => {
-  const note = renderNote(crossPost, { summary: "Cold starts are 40% faster." });
-  expect(note.text).toBe("Cold starts are 40% faster.");
-  expect(note.text).not.toContain("https://");
-});
-
-it("keeps no URL in the notification fallback when the summary failed", () => {
-  const note = renderNote(crossPost, { summaryError: "boom" });
-  expect(note.text).not.toContain("https://");
-});
-```
-
-Then change the existing assertion that requires a URL in `text`. Replace this test:
-
-```ts
-it("sets no title and a plain-text fallback carrying the links", () => {
-  const note = renderNote(crossPost);
-  expect(note.title).toBeUndefined();
-  expect(note.text).toContain("https://x.com/render/status/1");
-});
-```
-
-with:
-
-```ts
-it("sets no title and a plain-text fallback with no bare URL", () => {
-  const note = renderNote(crossPost);
-  expect(note.title).toBeUndefined();
-  expect(note.text).not.toContain("https://");
-});
-```
-
-- [x] **Step 2: Run the tests to verify they fail**
-
-Run: `pnpm vitest run test/template.test.ts`
-Expected: FAIL. The six new tests fail on the missing options, and the rewritten fallback test fails because `text` still appends the joined URLs.
-
-- [x] **Step 3: Widen `RenderNoteOptions`**
-
-In `src/amplifier/template.ts`, replace the interface:
-
-```ts
-export interface RenderNoteOptions {
-  /** Slack channel to post to. Requires SLACK_BOT_TOKEN to be honored. */
-  channel?: string;
-  callToAction?: string;
-  /** The model's one-line summary. When present it is the note's whole lead line. */
-  summary?: string;
-  /** Why there is no summary, shown under the fallback lead line. */
-  summaryError?: string;
-}
-```
-
-- [x] **Step 4: Rewrite `renderNote`**
-
-Replace the body and its doc comment:
-
-```ts
-/**
- * Build the Slack message for one announcement.
- *
- * With a summary, the note is that one line and a bulleted link per platform.
- * Without one, it falls back to the call to action, the reason the summary is
- * missing, and the draft's preview as a quote — the preview is the only content
- * signal left, so it is worth the extra lines.
- *
- * `text` is the notification fallback Slack shows in the sidebar and in push
- * notifications. It carries the lead line and no URL: every link in the note is
- * hyperlinked on its label, and a bare URL here also renders an unfurl card.
- */
-export function renderNote(group: PostGroup, opts: RenderNoteOptions = {}): PostMessageInput {
-  const links = orderedLinks(group);
-  // Slack mrkdwn has no list syntax, so the bullet is a literal character.
-  const linkList = links.map((l) => `• ${linkMrkdwn(l, group.shareUrl)}`).join("\n");
-  const summary = opts.summary?.trim();
-  const lead = summary || (opts.callToAction ?? DEFAULT_CALL_TO_ACTION);
-
-  const blocks: string[] = [];
-  if (summary) {
-    blocks.push(lead);
-  } else {
-    const failure = opts.summaryError
-      ? `\n_(Summarization LLM call failed: ${opts.summaryError})_`
-      : "";
-    blocks.push(`${lead}${failure}`);
-    const quotes = group.previews
-      .filter((p) => p !== "")
-      .map((p) => `> ${p}`)
-      .join("\n>\n");
-    blocks.push(quotes);
-  }
-  blocks.push(linkList);
-
-  return {
-    text: lead,
-    markdown: blocks.filter((s) => s !== "").join("\n\n"),
-    ...(opts.channel ? { channel: opts.channel } : {}),
-  };
-}
-```
-
-- [x] **Step 5: Run the tests to verify they pass**
-
-Run: `pnpm vitest run test/template.test.ts`
-Expected: PASS. Every earlier test in the file still passes, because with neither option set the note is what it was apart from `text`.
-
-- [x] **Step 6: Typecheck and commit**
-
-```bash
-pnpm typecheck
-git add src/amplifier/template.ts test/template.test.ts
-git commit -m "feat(template): lead the note with the summary and drop bare URLs"
-```
+- [ ] Task 3 complete
 
 ---
 
-### Task 4: `AMPLIFIER_SUMMARY_MODEL`
+## Group B: dedupe
+
+### Task 4: One platform module
 
 **Files:**
-- Modify: `src/config.ts:1` (import), `src/config.ts:4-15` (`CheckPostsInput`), `src/config.ts:17-26` (`AmplifierConfig`), `src/config.ts:38-80` (`loadConfig`)
-- Test: `test/config.test.ts`
 
-**Interfaces:**
-- Consumes: `DEFAULT_SUMMARY_MODEL` from Task 1.
-- Produces: `CheckPostsInput.summaryModel?: string`, `AmplifierConfig.summaryModel: string`.
+- Create: `src/typefully/platforms.ts`
+- Modify: `src/amplifier/template.ts`
+- Modify: `src/summary/summarize.ts`
 
-- [x] **Step 1: Write the failing tests**
+`PLATFORM_ORDER` is declared twice with the same value, in `template.ts` and in `summarize.ts`. Two label maps sit beside them: `PLATFORM_LABELS` (`"X post"`, `"LinkedIn post"`) in the template and `PLATFORM_NAMES` (`"X"`, `"LinkedIn"`) in the summarizer. The labels are the names plus the word "post", so one map covers both.
 
-Add to `test/config.test.ts`:
+The new module holds:
 
 ```ts
-it("defaults the summary model to the newest Sonnet", () => {
-  expect(loadConfig({}, {}).summaryModel).toBe("anthropic/claude-sonnet-5");
-});
-
-it("reads the summary model from the environment", () => {
-  expect(
-    loadConfig({}, { AMPLIFIER_SUMMARY_MODEL: "anthropic/claude-haiku-4-5" }).summaryModel,
-  ).toBe("anthropic/claude-haiku-4-5");
-});
-
-it("prefers the per-run summary model", () => {
-  const config = loadConfig(
-    { summaryModel: "openai/gpt-4o" },
-    { AMPLIFIER_SUMMARY_MODEL: "anthropic/claude-haiku-4-5" },
-  );
-  expect(config.summaryModel).toBe("openai/gpt-4o");
-});
-
-it("treats a blank summary model as unset", () => {
-  expect(loadConfig({}, { AMPLIFIER_SUMMARY_MODEL: "  " }).summaryModel).toBe(
-    "anthropic/claude-sonnet-5",
-  );
-});
+export const PLATFORM_ORDER: Platform[] = ["linkedin", "x"];
+export const PLATFORM_NAMES: Record<Platform, string> = { linkedin: "LinkedIn", x: "X" };
+export function platformLabel(platform: Platform): string;
 ```
 
-- [x] **Step 2: Run the tests to verify they fail**
+`platformLabel` returns `${PLATFORM_NAMES[platform]} post`. The template imports `PLATFORM_ORDER` and `platformLabel`; the summarizer imports `PLATFORM_ORDER` and `PLATFORM_NAMES`.
 
-Run: `pnpm vitest run test/config.test.ts`
-Expected: FAIL, `summaryModel` is undefined.
+It goes in `src/typefully/` because the display order is a property of the platform set, and `src/typefully/` is already the only directory that knows platform names. Do not put it in `src/amplifier/`, which `src/summary/` should not have to import from for a constant.
 
-- [x] **Step 3: Add the setting**
+**Verify:** `pnpm test`. `test/template.test.ts` already asserts the exact strings `LinkedIn post` and `X post`, so it catches a label change.
 
-In `src/config.ts`, add to the imports:
+- [ ] Task 4 complete
 
-```ts
-import { DEFAULT_SUMMARY_MODEL } from "./summary/model.js";
-```
-
-Add to `CheckPostsInput`, after `callToAction`:
-
-```ts
-  /** Provider-prefixed model id for the summary, e.g. "anthropic/claude-sonnet-5". */
-  summaryModel?: string;
-```
-
-Add to `AmplifierConfig`, after `callToAction`:
-
-```ts
-  summaryModel: string;
-```
-
-Add this helper next to `whole`:
-
-```ts
-/**
- * Resolve one string setting. A blank environment variable means "use the
- * default", matching `whole`: a declared-but-empty variable is the normal state
- * of a Render env var nobody filled in.
- */
-function text(
-  override: string | undefined,
-  envValue: string | undefined,
-  fallback: string,
-): string {
-  return override?.trim() || envValue?.trim() || fallback;
-}
-```
-
-Add to the object `loadConfig` returns, after `callToAction`:
-
-```ts
-    summaryModel: text(input.summaryModel, env.AMPLIFIER_SUMMARY_MODEL, DEFAULT_SUMMARY_MODEL),
-```
-
-- [x] **Step 4: Run the tests to verify they pass**
-
-Run: `pnpm vitest run test/config.test.ts`
-Expected: PASS.
-
-- [x] **Step 5: Confirm the cron service stays free of the vendor SDK**
-
-Run: `pnpm build && grep -rl "@anthropic-ai" dist/cron-trigger.js dist/config.js`
-Expected: no output. `model.ts` imports nothing, so neither file reaches the Anthropic SDK. If either matches, `config.ts` is importing `summarize.ts` instead of `model.ts`.
-
-- [x] **Step 6: Typecheck and commit**
-
-```bash
-pnpm typecheck
-git add src/config.ts test/config.test.ts
-git commit -m "feat(config): add AMPLIFIER_SUMMARY_MODEL"
-```
-
----
-
-### Task 5: Wire the summarizer into the run
+### Task 5: One fetch wrapper in postNote
 
 **Files:**
-- Modify: `src/amplifier/checkPosts.ts:1-10` (imports), `src/amplifier/checkPosts.ts:12-18` (`NoteResult`), `src/amplifier/checkPosts.ts:80-99` (the group loop)
-- Modify: `src/main.ts:1-9` (the registration comment)
-- Test: `test/checkPosts.test.ts`
 
-**Interfaces:**
-- Consumes: `summarizeGroup` and `isSummary` from Task 2, `renderNote`'s `summary` and `summaryError` from Task 3, `config.summaryModel` from Task 4.
-- Produces: `NoteResult.summarized: boolean`.
+- Modify: `src/slack/postNote.ts`
 
-- [x] **Step 1: Write the failing tests**
-
-In `test/checkPosts.test.ts`, add `llm.complete` to the defaults in `runCtx` so every existing test has it stubbed:
+`webFetch` and `webhookFetch` have identical bodies. They differ only in their declared type, `WebFetchLike` against `FetchLike`, because the vendor's web API port and webhook port each declare their own. Write the body once and give it both types:
 
 ```ts
-function runCtx(overrides: TaskHandlers = {}) {
-  return taskCtx({
-    "typefully.listPublished": () => ({ posts: [] }),
-    "kv.lock": () => ({ acquired: true }),
-    "kv.unlock": () => ({ released: true }),
-    "kv.get": () => ({ value: null }),
-    "kv.set": () => ({ ok: true }),
-    "slack.postMessage": () => ({ delivered: true }),
-    "llm.complete": () => ({ text: "Something shipped. Please amplify!", model: "m", stopReason: "end" }),
-    ...overrides,
-  });
-}
+const unfurlOffFetch = (url: string, init: { body: string }) =>
+  fetch(url, { ...init, body: withUnfurlOff(init.body) });
 ```
 
-Then add these tests:
+Then pass it as `unfurlOffFetch as WebFetchLike` and `unfurlOffFetch as FetchLike`, or narrow it properly if the two signatures are structurally compatible. Check whether they are before reaching for a cast: `exactOptionalPropertyTypes` and `strict` are on, so an unnecessary cast will hide a real difference. Keep the `UNFURL_OFF` comment, which explains why any of this exists.
 
-```ts
-it("leads the note with the summary", async () => {
-  const { ctx, calls } = runCtx({
-    "typefully.listPublished": () => ({
-      posts: [post("1", "2026-09-04T15:30:00Z", ["x", "linkedin"])],
-    }),
-  });
+**Verify:** `pnpm typecheck && pnpm test`. `test/postNote.test.ts` covers both paths.
 
-  const result = await check(ctx, BASE);
+- [ ] Task 5 complete
 
-  const md = calls.find((c) => c.name === "slack.postMessage")?.input.markdown ?? "";
-  expect(md.startsWith("Something shipped. Please amplify!")).toBe(true);
-  expect(result.notes[0]?.summarized).toBe(true);
-});
-
-it("summarizes before it claims the group", async () => {
-  const { ctx, calls } = runCtx({
-    "typefully.listPublished": () => ({
-      posts: [post("1", "2026-09-04T15:30:00Z", ["x"])],
-    }),
-  });
-
-  await check(ctx, BASE);
-
-  const names = calls.map((c) => c.name);
-  expect(names.indexOf("llm.complete")).toBeLessThan(names.indexOf("kv.lock"));
-});
-
-it("passes the configured model through", async () => {
-  const { ctx, calls } = runCtx({
-    "typefully.listPublished": () => ({
-      posts: [post("1", "2026-09-04T15:30:00Z", ["x"])],
-    }),
-  });
-
-  await check(ctx, { ...BASE, summaryModel: "anthropic/claude-haiku-4-5" });
-
-  expect(calls.find((c) => c.name === "llm.complete")?.input.model).toBe(
-    "anthropic/claude-haiku-4-5",
-  );
-});
-
-it("still posts, with the reason, when the summary fails", async () => {
-  const { ctx, calls } = runCtx({
-    "typefully.listPublished": () => ({
-      posts: [post("1", "2026-09-04T15:30:00Z", ["x"])],
-    }),
-    "llm.complete": () => {
-      throw new Error("401 invalid x-api-key");
-    },
-  });
-
-  const result = await check(ctx, BASE);
-
-  const md = calls.find((c) => c.name === "slack.postMessage")?.input.markdown ?? "";
-  expect(md).toContain("_(Summarization LLM call failed: 401 invalid x-api-key)_");
-  expect(md).toContain("> preview 1");
-  expect(result.notified).toBe(1);
-  expect(result.notes[0]?.summarized).toBe(false);
-});
-
-it("summarizes in a dry run so the logged note is the real one", async () => {
-  const { ctx, calls } = runCtx({
-    "typefully.listPublished": () => ({
-      posts: [post("1", "2026-09-04T15:30:00Z", ["x"])],
-    }),
-  });
-
-  await check(ctx, { ...BASE, dryRun: true });
-
-  expect(calls.filter((c) => c.name === "llm.complete")).toHaveLength(1);
-  expect(calls.filter((c) => c.name === "slack.postMessage")).toHaveLength(0);
-});
-
-it("summarizes once per note, not once per draft", async () => {
-  const { ctx, calls } = runCtx({
-    "typefully.listPublished": () => ({
-      posts: [
-        post("1", "2026-09-04T15:30:00Z", ["x"]),
-        post("2", "2026-09-04T15:33:00Z", ["linkedin"]),
-      ],
-    }),
-  });
-
-  await check(ctx, { ...BASE, groupWindowMinutes: 10 });
-
-  expect(calls.filter((c) => c.name === "llm.complete")).toHaveLength(1);
-});
-```
-
-- [x] **Step 2: Run the tests to verify they fail**
-
-Run: `pnpm vitest run test/checkPosts.test.ts`
-Expected: FAIL. No `llm.complete` call is made, so the six new tests fail. Every earlier test still passes: the stub is a default no test has to use.
-
-- [x] **Step 3: Wire it in**
-
-In `src/amplifier/checkPosts.ts`, add the import after the `template.js` import:
-
-```ts
-import { isSummary, summarizeGroup } from "../summary/summarize.js";
-```
-
-Add to `NoteResult`, after `platforms`:
-
-```ts
-  /** Whether the model wrote this note's lead line. False means the fallback text. */
-  summarized: boolean;
-```
-
-Then replace the top of the group loop, from `const outcome = await claimGroup(...)` through the `renderNote` call:
-
-```ts
-  for (const group of groups) {
-    // Before the claim, not inside it. LLM_RETRY spends about 62 seconds of
-    // backoff across 5 retries plus six call durations, and the in-flight lock
-    // lives 300 seconds — inside the claim, the lock can expire mid-flight and
-    // the next run re-posts the note. The cost is one wasted call when two runs
-    // race the same group.
-    const summary = await summarizeGroup(ctx, group, { model: config.summaryModel });
-    if (!isSummary(summary)) {
-      console.error(
-        `[amplifier] No summary for ${group.draftIds.join(", ")}: ${summary.error}. ` +
-          `Posting the fallback note.`,
-      );
-    }
-
-    const outcome = await claimGroup(ctx, group, runToken);
-    if (!isClaimed(outcome)) {
-      skipped += group.draftIds.length;
-      continue;
-    }
-    const { claims } = outcome;
-
-    const message = renderNote(group, {
-      ...(config.slackChannel ? { channel: config.slackChannel } : {}),
-      callToAction: config.callToAction,
-      ...(isSummary(summary) ? { summary: summary.line } : { summaryError: summary.error }),
-    });
-    const platforms = notePlatforms(group);
-```
-
-Then add `summarized: isSummary(summary)` to both `notes.push` calls in the loop, the dry-run one and the one at the end:
-
-```ts
-      notes.push({ draftIds: group.draftIds, platforms, delivered: false, summarized: isSummary(summary) });
-```
-
-and
-
-```ts
-    notes.push({ draftIds: group.draftIds, platforms, delivered, summarized: isSummary(summary) });
-```
-
-- [x] **Step 4: Update the registration comment in `src/main.ts`**
-
-The task list in the comment is now wrong. Replace the first paragraph:
-
-```ts
-// Entry point for the amplifier Workflow service.
-//
-// Importing the task modules registers amplifier.checkPosts and, transitively,
-// every task it composes — typefully.listPublished, llm.complete, slack.postMessage,
-// kv.lock, kv.unlock, kv.get, kv.set — because each module calls task(...) at
-// load. They all register into the one shared @renderinc/sdk TaskRegistry.
-```
-
-- [x] **Step 5: Run the full suite to verify it passes**
-
-Run: `pnpm test`
-Expected: PASS, 92 existing tests plus the ones added in Tasks 1 through 5.
-
-- [x] **Step 6: Typecheck and commit**
-
-```bash
-pnpm typecheck
-git add src/amplifier/checkPosts.ts src/main.ts test/checkPosts.test.ts
-git commit -m "feat(amplifier): summarize each note before claiming its group"
-```
-
----
-
-### Task 6: Configuration and docs
+### Task 6: Collapse the two duplicated shapes in template and checkPosts
 
 **Files:**
-- Modify: `.env.example:12-28`
-- Modify: `render.yaml:22-49`
-- Modify: `README.md` (the configuration table)
 
-**Interfaces:**
-- Consumes: `AMPLIFIER_SUMMARY_MODEL` from Task 4, `DEFAULT_SUMMARY_MODEL` from Task 1.
-- Produces: nothing in code.
+- Modify: `src/amplifier/template.ts`
+- Modify: `src/amplifier/checkPosts.ts`
 
-- [x] **Step 1: Add the block to `.env.example`**
+Two small repeats.
 
-Insert after the `@render-lab/tasks-slack` block and before the `tasks-render-kv` block:
+In `renderNote`, the `linkList` ternary maps and joins the links twice, once with a bullet prefix and once without:
 
-```
-# --- @render-lab/tasks-llm (the one-line post summary) ---
-# Read by the Anthropic SDK inside the call, never by src/config.ts. Without it
-# the note still posts, carrying the fallback text and the reason.
-ANTHROPIC_API_KEY=sk-ant-...
+```ts
+const bullet = links.length > 1 ? "• " : "";
+const linkList = links.map((l) => `${bullet}${linkMrkdwn(l, group.shareUrl)}`).join("\n");
 ```
 
-Then add to the amplifier config block, after `AMPLIFIER_CALL_TO_ACTION`:
+The join changes from `""` to `"\n"` in the single-link branch, which is the same string, because a one-element array joins to itself.
 
-```
-# AMPLIFIER_SUMMARY_MODEL=anthropic/claude-sonnet-5   # provider prefix required; beats tasks-llm's own LLM_MODEL
-```
+In `checkPostsImpl`, the `notes.push({ draftIds, platforms, delivered, summarized })` object is built twice, once in the dry-run branch and once at the end. Build it once. Either set a `delivered` variable before the branch and push after, or extract a small local that takes `delivered`.
 
-Note that `AMPLIFIER_CALL_TO_ACTION` is now the fallback lead line only. Update its inline comment to say so.
+Do not restructure the surrounding control flow. The dry-run branch releases the claim and skips the Slack call, and that ordering is the announce-once guarantee.
 
-- [x] **Step 2: Add the env var group to `render.yaml`**
+**Verify:** `pnpm test`. `test/template.test.ts` asserts both the one-link and two-link output.
 
-Blueprints do not support Workflow services, so the Workflow service is created by hand and its `fromGroup` link is made in the dashboard. This group therefore has no consumer inside `render.yaml`, permanently. That validates: `envVarGroup` requires only `name` and `envVars`, and nothing in the schema ties a group to a consumer. Add it to `envVarGroups`, after `amplifier-triggers`:
+- [ ] Task 6 complete
 
-```yaml
-          # Vendor keys for the hand-created Workflow service. No service in this
-          # Blueprint references this group: the cron service only starts runs.
-          # Attach it to the Workflow service in the dashboard.
-          - name: amplifier-workflow
-            envVars:
-              - key: ANTHROPIC_API_KEY
-                sync: false
-              - key: AMPLIFIER_SUMMARY_MODEL
-                value: anthropic/claude-sonnet-5
-```
+### Task 7: Shared test fixtures
 
-- [x] **Step 3: Validate the Blueprint**
+**Files:**
 
-Run: `render blueprints validate`
-Expected: `valid: true`, and a plan listing both `amplifier-triggers` and `amplifier-workflow` under `envGroups` with `totalActions: 5`. This was checked against CLI v2.26.0 while the plan was written.
+- Create: `test/support/fixtures.ts`
+- Modify: `test/checkPosts.test.ts`, `test/group.test.ts`, `test/window.test.ts`
+- Modify: `test/seen.test.ts`, `test/summarize.test.ts`, `test/template.test.ts`
 
-- [x] **Step 4: Update the README configuration table**
+Three test files declare a `post()` builder. They are near-identical: `checkPosts.test.ts` and `group.test.ts` differ only in `shareUrl` and the platform type annotation, and `window.test.ts` has a one-platform version. Three more files build `PostGroup` object literals by hand.
 
-Add a row for `AMPLIFIER_SUMMARY_MODEL`, default `anthropic/claude-sonnet-5`, described as the model that writes the lead line, with the note that the provider prefix is required. Add `ANTHROPIC_API_KEY` to whichever section lists `TYPEFULLY_API_KEY` and `SLACK_BOT_TOKEN`. Change the description of `AMPLIFIER_CALL_TO_ACTION` to say it is the lead line used when the summary fails.
+Add two builders:
 
-Also update whatever part of the README shows the note's shape: the successful note is one summary line and the bulleted links, with no quote.
+```ts
+export function post(
+  draftId: string,
+  at: string,
+  platforms: Platform[] = ["x"],
+  overrides?: Partial<PublishedPost>,
+): PublishedPost;
 
-Follow `~/.claude/STYLE.md` for the prose.
-
-- [x] **Step 5: Spell out the env group steps in the README Deployment section**
-
-`render.yaml` now creates two env groups, and the second one has to be attached by hand because the Workflow service is not in the Blueprint. The numbered sequence under `## Deployment` does not say either thing today, so someone following it sets `ANTHROPIC_API_KEY` on the service directly and the group sits unused.
-
-Replace step 2:
-
-```markdown
-2. Apply `render.yaml` to create the cron job, the Key Value instance, and two env groups: `amplifier-triggers` and `amplifier-workflow`. Set `RENDER_API_KEY`, and set `WORKFLOW_SLUG` to the slug from step 1.
+export function group(overrides?: Partial<PostGroup>): PostGroup;
 ```
 
-Replace step 3:
+`post` keeps the `shareUrl` that `group.test.ts` relies on and lets `checkPosts.test.ts` override it away if any assertion depends on its absence. Check that before moving: `checkPosts.test.ts` currently builds posts with no `shareUrl`, and `linkMrkdwn` falls back to the share URL when a permalink is missing.
 
-```markdown
-3. On the Workflow service, link the `amplifier-workflow` env group and set its `ANTHROPIC_API_KEY`. The group holds the vendor keys the Workflow service reads, and it is linked in the Dashboard because Blueprints do not support Workflow services, so `render.yaml` cannot reference it. Then set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, a Slack credential (see below), `DRY_RUN=true`, and `REDIS_URL` (the `amplifier-kv` internal connection string) on the service itself.
-```
+Leave `taskCtx.ts` and `kvStore` where they are. `kvStore` is used by one file.
 
-Add a step after it, renumbering the two `DRY_RUN` steps that follow:
+Keep each test's assertions byte-identical. This task must change no expected value.
 
-```markdown
-4. Confirm the link took: the Workflow service's environment page lists `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5` from the group. If it does not, the group exists but is not linked, and every note will carry `(Summarization LLM call failed)`.
-```
+**Verify:** `pnpm test` reports 127 passing, the same count as the baseline.
 
-Say in the `## Configuration` section that `ANTHROPIC_API_KEY` and `AMPLIFIER_SUMMARY_MODEL` arrive through the `amplifier-workflow` group, and that `AMPLIFIER_SUMMARY_MODEL` has a literal value in `render.yaml` so a Blueprint apply resets a Dashboard override. `ANTHROPIC_API_KEY` is `sync: false`, so an apply leaves it alone.
-
-- [x] **Step 6: Format and commit**
-
-```bash
-pnpm format
-git add .env.example render.yaml README.md
-git commit -m "docs: document the summary model, Anthropic key, and env groups"
-```
+- [ ] Task 7 complete
 
 ---
 
-### Task 7: Verify a real run
+## Group C: the one behavior fix
 
-**Files:** none. This task changes nothing and produces a checked box.
+### Task 8: A blank AMPLIFIER_CALL_TO_ACTION should use the default
 
-**Interfaces:**
-- Consumes: everything from Tasks 1 through 6.
-- Produces: nothing.
+**Files:**
 
-The stub computes its draft timestamps at process start, so after about 35 minutes one draft falls outside the 90-minute lookback and only one note posts. Restart `pnpm stub` before each run. `set -a; . ./.env; set +a` is how the credentials load, because `tsx` does not read `.env` on its own. Do not print the file and do not ask for its contents in chat.
+- Modify: `src/config.ts`
+- Modify: `src/amplifier/template.ts`
+- Modify: `test/config.test.ts`, `test/template.test.ts`
 
-- [x] **Step 1: Verify the fallback with a bad key**
+`loadConfig` resolves `callToAction` with `input.callToAction ?? env.AMPLIFIER_CALL_TO_ACTION ?? DEFAULT_CALL_TO_ACTION`. `??` does not catch the empty string, so `AMPLIFIER_CALL_TO_ACTION=""` resolves to `""`. `renderNote` then computes `lead = summary || (opts.callToAction ?? DEFAULT_CALL_TO_ACTION)`, and `??` misses the empty string a second time, so a failed summary posts a note whose lead line is blank.
 
-```bash
-redis-server --daemonize yes
-pnpm stub &
-redis-cli --scan --pattern 'amplifier:*' | xargs -r redis-cli del
-set -a; . ./.env; set +a
-TYPEFULLY_API_KEY=stub-key TYPEFULLY_BASE_URL=http://localhost:8787 \
-  ANTHROPIC_API_KEY=sk-ant-not-a-real-key \
-  SLACK_WEBHOOK_URL= DRY_RUN=true pnpm local:run 1
+A declared-but-empty variable is the normal state of a Render env var nobody filled in. `config.ts` already says so in the doc comment on `whole`, and `summaryModel` already routes through the `text` helper for exactly this reason. `callToAction` is the one setting that does not.
+
+Two edits:
+
+1. In `loadConfig`, resolve `callToAction` through `text(input.callToAction, env.AMPLIFIER_CALL_TO_ACTION, DEFAULT_CALL_TO_ACTION)`.
+2. In `renderNote`, change the fallback to `opts.callToAction?.trim() || DEFAULT_CALL_TO_ACTION` so a caller passing `""` directly gets the default too.
+
+**Tests to add:**
+
+- `config.test.ts`: `loadConfig({}, { AMPLIFIER_CALL_TO_ACTION: "" }).callToAction` equals `DEFAULT_CALL_TO_ACTION`. Add the whitespace-only case alongside it.
+- `template.test.ts`: `renderNote(group, { callToAction: "" })` with no summary leads with `DEFAULT_CALL_TO_ACTION`, not an empty line.
+
+Write both tests first and watch them fail before making the source edits.
+
+**Verify:** `pnpm test`
+
+- [ ] Task 8 complete
+
+---
+
+## Group D: polish
+
+### Task 9: Constants above their use in config.ts
+
+**Files:**
+
+- Modify: `src/config.ts`
+
+`MAX_LIMIT` is exported on line 92, after the `loadConfig` that uses it on line 63, with the `Bounds` interface below that. Hoisting means it works, but a reader hits the reference before the value. Move `MAX_LIMIT` and `Bounds` above `loadConfig`, keeping both doc comments exactly as written.
+
+`text` and `whole` stay at the bottom. They are implementation detail below the exported entry point, which is the shape the rest of `src/` uses.
+
+**Verify:** `pnpm typecheck && pnpm test`
+
+- [ ] Task 9 complete
+
+### Task 10: One command that runs every check
+
+**Files:**
+
+- Modify: `package.json`
+- Modify: `README.md`
+
+Contributors currently have to remember `pnpm format:check`, `pnpm typecheck`, and `pnpm test` separately. Add:
+
+```json
+"check": "pnpm format:check && pnpm typecheck && pnpm test"
 ```
 
-Expected: the run logs `[amplifier] No summary for ...: 401 ...`, then a dry-run note whose first lines are the call to action, `_(Summarization LLM call failed: ...)_`, and the `> preview` quote. This takes about a minute: `LLM_RETRY` retries a 401 five times before giving up.
+Put it in the Local development section of the README as the command to run before committing.
 
-- [x] **Step 2: Verify the summary with the real key**
+**Verify:** `pnpm check` passes.
 
-```bash
-redis-cli --scan --pattern 'amplifier:*' | xargs -r redis-cli del
-kill %1; pnpm stub &
-set -a; . ./.env; set +a
-TYPEFULLY_API_KEY=stub-key TYPEFULLY_BASE_URL=http://localhost:8787 \
-  SLACK_WEBHOOK_URL= DRY_RUN=true pnpm local:run 1
+- [ ] Task 10 complete
+
+### Task 11: Import order in checkPosts.ts
+
+**Files:**
+
+- Modify: `src/amplifier/checkPosts.ts`
+
+The `../summary/summarize.js` import sits between `./template.js` and `./window.js`, so the parent-directory imports are no longer grouped. Move it up with the other `../` imports. Prettier does not sort imports, so this stays hand-maintained.
+
+Do not add an import-sorting plugin as part of this task. That is a separate decision about tooling.
+
+**Verify:** `pnpm check`
+
+- [ ] Task 11 complete
+
+---
+
+## Group E: README
+
+### Task 12: ASCII architecture diagram
+
+**Files:**
+
+- Modify: `README.md`
+
+Add the diagram as the first thing under `## How it works`, before the numbered steps. Two boxes and the call-out arrows:
+
+```
+      every 30 min
+           │
+           ▼
+┌────────────────────┐   dispatch    ┌──────────────────────────┐
+│ amplifier-cron     │ ────────────▶ │ amplifier (Workflow)     │
+│ cron service       │  @render-lab  │ amplifier.checkPosts     │
+└────────────────────┘   /triggers   └────────────┬─────────────┘
+                                                  │
+  1  typefully.listPublished ─────────────────────┼──▶ Typefully API
+  2  withinWindow, then announcedDraftIds ────────┼──▶ amplifier-kv
+  3  groupPosts                                   │
+  4  llm.complete ────────────────────────────────┼──▶ Anthropic
+  5  claimGroup, one kv.lock per draft ───────────┼──▶ amplifier-kv
+  6  amplifier.postNote ──────────────────────────┼──▶ Slack #amplify
+  7  markAnnounced, then releaseGroup ────────────┴──▶ amplifier-kv
 ```
 
-Expected: a dry-run note that opens on one model-written line, then the two bullets, with no quote and no bare URL. This spends real Anthropic credit, a fraction of a cent per note.
+Steps 4 through 7 run once per group. Say that in one line under the diagram.
 
-- [x] **Step 3: Post to the test channel**
+Then add a second, smaller diagram to the `## Adding Twitter or LinkedIn directly` section, showing the module boundary that section already describes in prose:
 
-```bash
-redis-cli --scan --pattern 'amplifier:*' | xargs -r redis-cli del
-kill %1; pnpm stub &
-set -a; . ./.env; set +a
-TYPEFULLY_API_KEY=stub-key TYPEFULLY_BASE_URL=http://localhost:8787 \
-  SLACK_WEBHOOK_URL= DRY_RUN=false pnpm local:run 1
+```
+src/typefully/   knows Typefully's field names, emits PublishedPost
+      │
+      ▼
+src/amplifier/   works only on PublishedPost and PostGroup
+      │
+      ├──▶ src/summary/   the lead line
+      └──▶ src/slack/     the note, with unfurling off
 ```
 
-`SLACK_WEBHOOK_URL=` must be empty: `scripts/local-run.ts` points it at the stub when it is unset, which sends the note nowhere real. With it empty, delivery goes through `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`.
+Check the box-drawing characters render in a fixed-width font before committing. Do not use emoji or color.
 
-Expected: a note in `#test-shif-amplify` reading as one summary line and two bullets labeled `LinkedIn post` and `X post`. Clear the `amplifier:*` keys before a repeat run, or the second one reports `skipped` and posts nothing, which is the dedupe working.
+**Verify:** Read the rendered README on GitHub or in a Markdown preview and confirm the diagram lines up.
 
-- [x] **Step 4: Check whether the unfurl cards are gone**
+- [ ] Task 12 complete
 
-Answer: the cards are still there. Emptying `text` of URLs was not enough, because Slack also unfurls links inside a section block's mrkdwn.
+### Task 13: Correct the Slack task name
 
-`@render-lab/tasks-slack` 0.3.0 needs an upstream change. `PostMessageInput` has no unfurl option, and `postMessageImpl` sends neither `unfurl_links` nor `unfurl_media`, so `chat.postMessage` and the incoming webhook both default to unfurling. The fix is an optional `unfurl?: boolean` on `PostMessageInput` that passes `unfurl_links` and `unfurl_media` through to Slack. Amplifier would set it to false.
+**Files:**
 
-- [x] **Step 5: Clean up and commit**
+- Modify: `README.md`
+
+The README names `slack.postMessage` in two places: step 6 of How it works, and the last line of the Slack credentials section. The task amplifier actually dispatches is `amplifier.postNote`, defined in `src/slack/postNote.ts`. It wraps the vendor's `postMessageImpl` and adds `unfurl_links: false` and `unfurl_media: false` to the request body, because `@render-lab/tasks-slack` 0.3.0 sends neither and exposes no option for them.
+
+Fix both names and add two sentences on the wrapper. A reader looking for `slack.postMessage` in the logs will not find it, and a reader who upgrades `@render-lab/tasks-slack` needs to know the wrapper can go away once the vendor accepts an unfurl option.
+
+**Verify:** `grep -n "slack.postMessage" README.md` returns nothing.
+
+- [ ] Task 13 complete
+
+### Task 14: Rewrite the Slack credentials opening
+
+**Files:**
+
+- Modify: `README.md`
+
+The section opens with "Optionally, create a Slack channel for testing. If not, prepare a the Slack channel you will use in production and ensure it's ready to test below." That has a typo and buries the instruction. Replace it with a plain two-sentence version: pick the channel the notes will go to, and use a test channel first if the production one is busy.
+
+While in this section, check the rest of it against `src/slack/postNote.ts` and `slack-app-manifest.yaml`. The manifest requests `chat:write` and `incoming-webhook`, and `slackDeps` builds the web API port only when `SLACK_BOT_TOKEN` is set. Both claims in the README match the code today. Confirm rather than assume.
+
+**Verify:** `pnpm format:check`
+
+- [ ] Task 14 complete
+
+### Task 15: Complete the configuration table
+
+**Files:**
+
+- Modify: `README.md`
+
+The table covers the Workflow service's variables. Three gaps:
+
+1. The cron service's variables are missing entirely. `RENDER_API_KEY`, `WORKFLOW_SLUG`, `CRON_TASK`, and `CRON_INPUT` appear in `render.yaml` and `.env.example` but not in the table. Add them as a second table under a `### Cron service` heading, so a reader does not set them on the wrong service.
+2. `STUB_PORT` is read by `scripts/typefully-stub.ts` and defaults to 8787. Add it to a short note in the local-development section rather than the main table. It is not a deployment setting.
+3. `AMPLIFIER_SUMMARY_MODEL` takes precedence over `tasks-llm`'s own `LLM_MODEL`. `.env.example` says so and the README does not. Add it to the Notes column.
+
+Check every default in the table against `src/config.ts` while editing. The current values are lookback 90, group window 10, seen TTL 30 days, limit 25, and dry run true. Correct any that have drifted.
+
+**Verify:** Each row's default matches the `fallback` value in `loadConfig`, and each variable name appears in `src/`, `render.yaml`, or `scripts/`.
+
+- [ ] Task 15 complete
+
+### Task 16: Check the rest of the README against the code
+
+**Files:**
+
+- Modify: `README.md`
+
+Walk the remaining claims and fix what has drifted.
+
+- The note example shows two bulleted links. `renderNote` drops the bullet when there is one link. Add a one-line note or a second example.
+- The local development block runs `pnpm install`, `pnpm test`, `cp .env.example .env`, `render workflows dev -- pnpm dev`, `render workflows tasks list --local`, and `render workflows start amplifier.checkPosts --local --input='[{}]'`. Run each one and fix any that fail or that the CLI has renamed.
+- The end-to-end section says run 1 reports `notified: 2` and run 2 reports `notified: 0` and `skipped: 2`. Run it and confirm. It needs `redis-server` and `pnpm stub` and no credentials.
+- The deployment steps reference build `pnpm install && pnpm build`, start `node dist/main.js`, project `amplifier`, environment `Production`, region Oregon. Confirm these still match `render.yaml`.
+- Step 4 says the environment page should list `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5`. Confirm that against `render.yaml` and `src/summary/model.ts`.
+
+Report anything that cannot be checked without deploying, rather than leaving it unverified and unmarked.
+
+**Verify:** `pnpm check`, plus the local end-to-end run above.
+
+- [ ] Task 16 complete
+
+---
+
+## Final check
 
 ```bash
-kill %1
-redis-cli shutdown nosave
-rm -f dump.rdb
-git status --short
+pnpm check
+git diff --stat
 ```
 
-`dump.rdb` is a stray local Redis snapshot. Delete it, do not commit it.
+Test count must still be at least 127, with the four new cases from Task 8 on top. No task in this plan may change the note's rendered output except Task 8, and Task 8 only changes it when `AMPLIFIER_CALL_TO_ACTION` is blank.
+
+- [ ] All tasks complete
