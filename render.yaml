@@ -47,3 +47,13 @@ projects:
                 value: amplifier.checkPosts
               - key: CRON_INPUT
                 value: "{}"
+
+          # Vendor keys for the hand-created Workflow service. No service in this
+          # Blueprint references this group: the cron service only starts runs.
+          # Attach it to the Workflow service in the dashboard.
+          - name: amplifier-workflow
+            envVars:
+              - key: ANTHROPIC_API_KEY
+                sync: false
+              - key: AMPLIFIER_SUMMARY_MODEL
+                value: anthropic/claude-sonnet-5

@@ -12,7 +12,19 @@ A Render cron job runs every 30 minutes and dispatches `amplifier.checkPosts` on
 2. Keeps the drafts published in the last 90 minutes.
 3. Drops the drafts Render Key Value already records as announced.
 4. Groups the rest, when they were published close together on different platforms, into one note.
-5. Takes a 5-minute lock per draft, posts the note through `slack.postMessage`, then records each draft as announced for 30 days.
+5. Asks Claude Sonnet 5, through `llm.complete`, for the one line that opens the note.
+6. Takes a 5-minute lock per draft, posts the note through `slack.postMessage`, then records each draft as announced for 30 days.
+
+A note is that one summary line and a bulleted link per platform:
+
+```
+Cursor Origin is now a supported Git provider on Render. Help spread the word!
+
+• <https://linkedin.com/…|LinkedIn post>
+• <https://x.com/…|X post>
+```
+
+When the summary call fails, the note still goes out. It opens with `AMPLIFIER_CALL_TO_ACTION`, names the reason, and quotes the draft preview.
 
 Dedupe is per draft, not per note, so a LinkedIn post that arrives after its Twitter twin was announced still gets its own note.
 
@@ -51,10 +63,11 @@ This runs every task in one process with no retries and no timeouts, so it check
 ## Deployment
 
 1. Create a Workflow service in the Render Dashboard from this repo, with build `pnpm install && pnpm build` and start `node dist/main.js`. Put it in project `amplifier`, environment `Production`, region Oregon, the same as the services in `render.yaml`. The Key Value instance is reachable only over the private network within its own environment, so a Workflow service anywhere else fails to connect. Note the service's slug.
-2. Apply `render.yaml` to create the cron job and the Key Value instance. Set `RENDER_API_KEY`, and set `WORKFLOW_SLUG` to the slug from step 1.
-3. On the Workflow service, set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, a Slack credential (see below), `DRY_RUN=true`, and `REDIS_URL` (the `amplifier-kv` internal connection string).
-4. Leave `DRY_RUN=true` for a couple of cron runs and read the Workflow logs.
-5. Set `DRY_RUN=false`.
+2. Apply `render.yaml` to create the cron job, the Key Value instance, and two env groups: `amplifier-triggers` and `amplifier-workflow`. Set `RENDER_API_KEY`, and set `WORKFLOW_SLUG` to the slug from step 1.
+3. On the Workflow service, link the `amplifier-workflow` env group and set its `ANTHROPIC_API_KEY`. The group holds the vendor keys the Workflow service reads, and it is linked in the Dashboard because Blueprints do not support Workflow services, so `render.yaml` cannot reference it. Then set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, a Slack credential (see below), `DRY_RUN=true`, and `REDIS_URL` (the `amplifier-kv` internal connection string) on the service itself.
+4. Confirm the link took: the Workflow service's environment page lists `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5` from the group. If it does not, the group exists but is not linked, and every note will carry `(Summarization LLM call failed)`.
+5. Leave `DRY_RUN=true` for a couple of cron runs and read the Workflow logs.
+6. Set `DRY_RUN=false`.
 
 ## Slack credentials
 
@@ -84,27 +97,31 @@ manifest.
 
 ## Configuration
 
-| Variable                         | Default   | Range | Notes                                                                            |
-| -------------------------------- | --------- | ----- | -------------------------------------------------------------------------------- |
-| `TYPEFULLY_API_KEY`              | —         | —     | Required. Typefully Settings > Integrations.                                     |
-| `TYPEFULLY_SOCIAL_SET_ID`        | —         | —     | Required. `GET /v2/social-sets` lists them.                                      |
-| `TYPEFULLY_BASE_URL`             | Typefully | —     | Local stub only. The API key goes to whatever host this names.                   |
-| `SLACK_WEBHOOK_URL`              | —         | —     | Incoming webhook. Locked to the channel you created it for.                      |
-| `SLACK_BOT_TOKEN`                | —         | —     | Bot token. Required for `SLACK_CHANNEL` to be honored.                           |
-| `SLACK_CHANNEL`                  | —         | —     | Channel the note goes to. Needs `SLACK_BOT_TOKEN`.                               |
-| `REDIS_URL`                      | —         | —     | Required. The `amplifier-kv` internal connection string.                         |
-| `DRY_RUN`                        | `true`    | —     | Set to `false` to post to Slack.                                                 |
-| `AMPLIFIER_LOOKBACK_MINUTES`     | `90`      | ≥ 1   | Wider than the 30-minute schedule, so a skipped run catches up.                  |
-| `AMPLIFIER_GROUP_WINDOW_MINUTES` | `10`      | ≥ 0   | How close two drafts must be to share a note. `0` turns grouping off.            |
-| `AMPLIFIER_SEEN_TTL_DAYS`        | `30`      | ≥ 1   | How long a draft stays marked as announced.                                      |
-| `AMPLIFIER_LIMIT`                | `25`      | 1–100 | Drafts pulled per run, and the run's widest burst of concurrent Key Value calls. |
-| `AMPLIFIER_CALL_TO_ACTION`       | see below | —     | The note's opening line and the amplify ask.                                                  |
+| Variable                         | Default                     | Range | Notes                                                                            |
+| -------------------------------- | --------------------------- | ----- | -------------------------------------------------------------------------------- |
+| `TYPEFULLY_API_KEY`              | —                           | —     | Required. Typefully Settings > Integrations.                                     |
+| `TYPEFULLY_SOCIAL_SET_ID`        | —                           | —     | Required. `GET /v2/social-sets` lists them.                                      |
+| `TYPEFULLY_BASE_URL`             | Typefully                   | —     | Local stub only. The API key goes to whatever host this names.                   |
+| `SLACK_WEBHOOK_URL`              | —                           | —     | Incoming webhook. Locked to the channel you created it for.                      |
+| `SLACK_BOT_TOKEN`                | —                           | —     | Bot token. Required for `SLACK_CHANNEL` to be honored.                           |
+| `SLACK_CHANNEL`                  | —                           | —     | Channel the note goes to. Needs `SLACK_BOT_TOKEN`.                               |
+| `ANTHROPIC_API_KEY`              | —                           | —     | Required for the summary. Without it the note carries the fallback lead line.    |
+| `REDIS_URL`                      | —                           | —     | Required. The `amplifier-kv` internal connection string.                         |
+| `DRY_RUN`                        | `true`                      | —     | Set to `false` to post to Slack.                                                 |
+| `AMPLIFIER_LOOKBACK_MINUTES`     | `90`                        | ≥ 1   | Wider than the 30-minute schedule, so a skipped run catches up.                  |
+| `AMPLIFIER_GROUP_WINDOW_MINUTES` | `10`                        | ≥ 0   | How close two drafts must be to share a note. `0` turns grouping off.            |
+| `AMPLIFIER_SEEN_TTL_DAYS`        | `30`                        | ≥ 1   | How long a draft stays marked as announced.                                      |
+| `AMPLIFIER_LIMIT`                | `25`                        | 1–100 | Drafts pulled per run, and the run's widest burst of concurrent Key Value calls. |
+| `AMPLIFIER_CALL_TO_ACTION`       | see below                   | —     | The lead line used when the summary fails.                                       |
+| `AMPLIFIER_SUMMARY_MODEL`        | `anthropic/claude-sonnet-5` | —     | The model that writes the lead line. The provider prefix is required.            |
 
 A numeric variable set to a fraction, to something non-numeric, or to a value outside
 its range fails the run with the variable's name in the error. Leaving one blank or
 unset uses the default.
 
 Default call to action: "New Render social post! Please like and share when you have a minute"
+
+`ANTHROPIC_API_KEY` and `AMPLIFIER_SUMMARY_MODEL` arrive through the `amplifier-workflow` env group. `AMPLIFIER_SUMMARY_MODEL` has a literal value in `render.yaml`, so a Blueprint apply resets a Dashboard override. `ANTHROPIC_API_KEY` is `sync: false`, so an apply leaves it alone.
 
 ## Adding Twitter or LinkedIn directly
 
