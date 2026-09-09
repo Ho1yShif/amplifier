@@ -1,4 +1,5 @@
 import { DEFAULT_CALL_TO_ACTION } from "./amplifier/template.js";
+import { DEFAULT_SUMMARY_MODEL } from "./summary/model.js";
 
 /** Overrides accepted per run; anything omitted falls back to env, then defaults. */
 export interface CheckPostsInput {
@@ -9,6 +10,8 @@ export interface CheckPostsInput {
   seenTtlDays?: number;
   slackChannel?: string;
   callToAction?: string;
+  /** Provider-prefixed model id for the summary, e.g. "anthropic/claude-sonnet-5". */
+  summaryModel?: string;
   dryRun?: boolean;
   /** ISO 8601 "now", for tests and for replaying a past window. */
   now?: string;
@@ -22,6 +25,7 @@ export interface AmplifierConfig {
   seenTtlSeconds: number;
   slackChannel?: string;
   callToAction: string;
+  summaryModel: string;
   dryRun: boolean;
 }
 
@@ -75,6 +79,7 @@ export function loadConfig(
     seenTtlSeconds: seenTtlDays * 86_400,
     ...(slackChannel ? { slackChannel } : {}),
     callToAction: input.callToAction ?? env.AMPLIFIER_CALL_TO_ACTION ?? DEFAULT_CALL_TO_ACTION,
+    summaryModel: text(input.summaryModel, env.AMPLIFIER_SUMMARY_MODEL, DEFAULT_SUMMARY_MODEL),
     dryRun: input.dryRun ?? env.DRY_RUN !== "false",
   };
 }
@@ -91,6 +96,19 @@ interface Bounds {
   fallback: number;
   min: number;
   max?: number;
+}
+
+/**
+ * Resolve one string setting. A blank environment variable means "use the
+ * default", matching `whole`: a declared-but-empty variable is the normal state
+ * of a Render env var nobody filled in.
+ */
+function text(
+  override: string | undefined,
+  envValue: string | undefined,
+  fallback: string,
+): string {
+  return override?.trim() || envValue?.trim() || fallback;
 }
 
 /**

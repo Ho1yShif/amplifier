@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig, MAX_LIMIT } from "../src/config.js";
 import { DEFAULT_CALL_TO_ACTION } from "../src/amplifier/template.js";
+import { DEFAULT_SUMMARY_MODEL } from "../src/summary/model.js";
 
 describe("loadConfig", () => {
   it("uses the defaults with an empty env", () => {
@@ -10,6 +11,7 @@ describe("loadConfig", () => {
       groupWindowMinutes: 10,
       seenTtlSeconds: 30 * 86_400,
       callToAction: DEFAULT_CALL_TO_ACTION,
+      summaryModel: DEFAULT_SUMMARY_MODEL,
       dryRun: true,
     });
   });
@@ -36,6 +38,7 @@ describe("loadConfig", () => {
       seenTtlSeconds: 7 * 86_400,
       slackChannel: "#social",
       callToAction: "Boost it.",
+      summaryModel: DEFAULT_SUMMARY_MODEL,
       dryRun: false,
     });
   });
@@ -93,6 +96,29 @@ describe("loadConfig", () => {
     expect(loadConfig({}, { AMPLIFIER_LIMIT: String(MAX_LIMIT) }).limit).toBe(MAX_LIMIT);
     expect(() => loadConfig({}, { AMPLIFIER_LIMIT: String(MAX_LIMIT + 1) })).toThrow(
       `AMPLIFIER_LIMIT must be a whole number between 1 and ${MAX_LIMIT}`,
+    );
+  });
+  it("defaults the summary model to the newest Sonnet", () => {
+    expect(loadConfig({}, {}).summaryModel).toBe("anthropic/claude-sonnet-5");
+  });
+
+  it("reads the summary model from the environment", () => {
+    expect(
+      loadConfig({}, { AMPLIFIER_SUMMARY_MODEL: "anthropic/claude-haiku-4-5" }).summaryModel,
+    ).toBe("anthropic/claude-haiku-4-5");
+  });
+
+  it("prefers the per-run summary model", () => {
+    const config = loadConfig(
+      { summaryModel: "openai/gpt-4o" },
+      { AMPLIFIER_SUMMARY_MODEL: "anthropic/claude-haiku-4-5" },
+    );
+    expect(config.summaryModel).toBe("openai/gpt-4o");
+  });
+
+  it("treats a blank summary model as unset", () => {
+    expect(loadConfig({}, { AMPLIFIER_SUMMARY_MODEL: "  " }).summaryModel).toBe(
+      "anthropic/claude-sonnet-5",
     );
   });
 });
