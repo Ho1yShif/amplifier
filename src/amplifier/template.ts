@@ -1,16 +1,12 @@
 import type { PostMessageInput } from "@render-lab/tasks-slack";
 import { compareTime } from "../time.js";
+import { PLATFORM_ORDER, platformLabel } from "../typefully/platforms.js";
 import type { Platform, PlatformLink } from "../typefully/types.js";
 import type { PostGroup } from "./group.js";
 
 /** The note's opening line and the amplify ask. Override with AMPLIFIER_CALL_TO_ACTION. */
 export const DEFAULT_CALL_TO_ACTION =
   "New Render social post! Please like and share when you have a minute";
-
-/** Display order in the note, so every note reads the same way. */
-const PLATFORM_ORDER: Platform[] = ["linkedin", "x"];
-
-const PLATFORM_LABELS: Record<Platform, string> = { x: "X post", linkedin: "LinkedIn post" };
 
 export interface RenderNoteOptions {
   /** Slack channel to post to. Requires SLACK_BOT_TOKEN to be honored. */
@@ -43,7 +39,7 @@ export function notePlatforms(group: PostGroup): Platform[] {
 }
 
 function linkMrkdwn(link: PlatformLink, shareUrl: string | undefined): string {
-  const label = PLATFORM_LABELS[link.platform];
+  const label = platformLabel(link.platform);
   if (link.url) return `<${link.url}|${label}>`;
   if (shareUrl) return `<${shareUrl}|${label} (Typefully draft)>`;
   return `${label} (link pending)`;

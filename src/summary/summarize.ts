@@ -1,13 +1,9 @@
 import { complete } from "@render-lab/tasks-llm";
 import type { TaskContext } from "@renderinc/sdk/workflows";
 import type { PostGroup } from "../amplifier/group.js";
-import type { Platform } from "../typefully/types.js";
+import { PLATFORM_NAMES, PLATFORM_ORDER } from "../typefully/platforms.js";
 import { DEFAULT_SUMMARY_MODEL, SUMMARY_MAX_TOKENS } from "./model.js";
 import { loadPrompt } from "./prompt.js";
-
-/** How the platforms are named to the model, in the note's display order. */
-const PLATFORM_NAMES: Record<Platform, string> = { linkedin: "LinkedIn", x: "X" };
-const PLATFORM_ORDER: Platform[] = ["linkedin", "x"];
 
 export interface SummarizeOptions {
   /** Provider-prefixed model id. Defaults to DEFAULT_SUMMARY_MODEL. */
