@@ -6,6 +6,26 @@ It reads published drafts from Typefully, which is where the Render Twitter and 
 
 ## How it works
 
+```
+      every 30 min
+           │
+           ▼
+┌────────────────────┐   dispatch    ┌──────────────────────────┐
+│ amplifier-cron     │ ────────────▶ │ amplifier (Workflow)     │
+│ cron service       │  @render-lab  │ amplifier.checkPosts     │
+└────────────────────┘   /triggers   └────────────┬─────────────┘
+                                                  │
+  1  typefully.listPublished ─────────────────────┼──▶ Typefully API
+  2  withinWindow, then announcedDraftIds ────────┼──▶ amplifier-kv
+  3  groupPosts                                   │
+  4  llm.complete ────────────────────────────────┼──▶ Anthropic
+  5  claimGroup, one kv.lock per draft ───────────┼──▶ amplifier-kv
+  6  amplifier.postNote ──────────────────────────┼──▶ Slack #amplify
+  7  markAnnounced, then releaseGroup ────────────┴──▶ amplifier-kv
+```
+
+Steps 4 through 7 run once per group.
+
 A Render cron job runs every 30 minutes and dispatches `amplifier.checkPosts` on the amplifier Workflow service. That task:
 
 1. Calls `typefully.listPublished` for published drafts in the configured social set.
@@ -131,5 +151,15 @@ Default call to action: "New Render social post! Please like and share when you 
 `ANTHROPIC_API_KEY` and `AMPLIFIER_SUMMARY_MODEL` arrive through the `amplifier-workflow` env group. `AMPLIFIER_SUMMARY_MODEL` has a literal value in `render.yaml`, so a Blueprint apply resets a Dashboard override. `ANTHROPIC_API_KEY` is `sync: false`, so an apply leaves it alone.
 
 ## Adding Twitter or LinkedIn directly
+
+```
+src/typefully/   knows Typefully's field names, emits PublishedPost
+      │
+      ▼
+src/amplifier/   works only on PublishedPost and PostGroup
+      │
+      ├──▶ src/summary/   the lead line
+      └──▶ src/slack/     the note, with unfurling off
+```
 
 Everything that knows Typefully's field names lives in `src/typefully/`. `src/amplifier/` works only on the `PublishedPost` DTO, so a direct Twitter or LinkedIn source means adding a sibling directory with a second task shaped like `typefully.listPublished` and merging its posts in `checkPosts.ts`.
