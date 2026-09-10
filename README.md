@@ -37,13 +37,21 @@ A Render cron job runs every 30 minutes and dispatches `amplifier.checkPosts` on
 
 `amplifier.postNote` wraps the vendor's `postMessageImpl` and adds `unfurl_links: false` and `unfurl_media: false` to the request body, because `@render-lab/tasks-slack` 0.3.0 sends neither and exposes no option for them. The wrapper can go away once the vendor adds an unfurl option.
 
-A note is that one summary line and a bulleted link per platform:
+A note is that one summary line and a link per platform, bulleted only when there are two:
 
 ```
-Cursor Origin is now a supported Git provider on Render. Help spread the word!
+Cursor Origin is now a supported Git provider on Render. Help spread the word
 
 • <https://linkedin.com/…|LinkedIn post>
 • <https://x.com/…|X post>
+```
+
+A post that only went out on one platform gets no bullet:
+
+```
+Please like/share our new customer story for OpenAI
+
+<https://x.com/…|X post>
 ```
 
 When the summary call fails, the note still goes out. It opens with `AMPLIFIER_CALL_TO_ACTION`, names the reason, and quotes the draft preview.
