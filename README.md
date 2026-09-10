@@ -33,7 +33,9 @@ A Render cron job runs every 30 minutes and dispatches `amplifier.checkPosts` on
 3. Drops the drafts Render Key Value already records as announced.
 4. Groups the rest, when they were published close together on different platforms, into one note.
 5. Asks Claude Sonnet 5, through `llm.complete`, for the one line that opens the note.
-6. Takes a 5-minute lock per draft, posts the note through `slack.postMessage`, then records each draft as announced for 30 days.
+6. Takes a 5-minute lock per draft, posts the note through `amplifier.postNote`, then records each draft as announced for 30 days.
+
+`amplifier.postNote` wraps the vendor's `postMessageImpl` and adds `unfurl_links: false` and `unfurl_media: false` to the request body, because `@render-lab/tasks-slack` 0.3.0 sends neither and exposes no option for them. The wrapper can go away once the vendor adds an unfurl option.
 
 A note is that one summary line and a bulleted link per platform:
 
@@ -116,7 +118,7 @@ and both credentials show up on the app's pages afterwards. Set one of these two
 - **`SLACK_BOT_TOKEN`** is the `xoxb-` token on **OAuth & Permissions**. It makes
   `SLACK_CHANNEL` pick the channel, and you `/invite` the bot there first.
 
-If neither is set, `slack.postMessage` logs to the console and
+If neither is set, `amplifier.postNote` logs to the console and
 reports `delivered: false`.
 
 Both credentials are minted during install, so neither can be committed alongside the
