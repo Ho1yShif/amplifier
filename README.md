@@ -156,7 +156,7 @@ Default call to action: "New Render social post! Please like and share when you 
 
 ### Cron service
 
-These variables belong to the `amplifier-cron` service, not the Workflow service.
+The table above covers the Workflow service. These variables belong to the `amplifier-cron` service.
 
 | Variable         | Default                | Range | Notes                                                                                         |
 | ---------------- | ---------------------- | ----- | --------------------------------------------------------------------------------------------- |
