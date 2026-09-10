@@ -1,6 +1,6 @@
 // Model settings for the post summary. Kept apart from summarize.ts so that
-// config.ts — and through it cron-trigger.ts — can read them without importing
-// llm.complete and pulling @anthropic-ai/sdk into the cron service's process.
+// config.ts can read them without importing llm.complete and pulling
+// @anthropic-ai/sdk into the webhook receiver's process.
 
 /**
  * Default summarizer. Sonnet 5 is the newest Sonnet, and the `anthropic/`

@@ -11,7 +11,8 @@ export interface Claim {
 /**
  * How long an in-flight lock survives without being released. A run that dies
  * between the lock and the Slack post leaves the lock behind, so the TTL is
- * short enough that the next cron run retries the draft.
+ * short enough that the next run retries the draft, whether that is an
+ * `amplifier.handleEvent` retry or a manual re-run.
  */
 export const INFLIGHT_TTL_SECONDS = 300;
 
