@@ -7,6 +7,8 @@ import { listPublished } from "../typefully/listPublished.js";
 import type { Platform } from "../typefully/types.js";
 import { groupPosts } from "./group.js";
 import { announcedDraftIds, claimGroup, isClaimed, markAnnounced, releaseGroup } from "./seen.js";
+import { pendingForDraft, settleDeadlineMs } from "./settle.js";
+import { StillPublishingError } from "./StillPublishingError.js";
 import { notePlatforms, renderNote } from "./template.js";
 import { withinWindow } from "./window.js";
 
@@ -34,6 +36,8 @@ export interface CheckPostsResult {
    */
   skipped: number;
   dryRun: boolean;
+  /** Platforms announced without a link because the settle deadline passed. */
+  droppedPlatforms: Platform[];
   notes: NoteResult[];
 }
 
@@ -74,6 +78,31 @@ export async function checkPostsImpl(
     ctx,
     recent.map((p) => p.draftId),
   );
+
+  // Settle check. It sits after the marker read, so a draft an earlier run
+  // already announced never blocks, and before `claimGroup`, so no in-flight
+  // lock is held across the retry backoff.
+  let droppedPlatforms: Platform[] = [];
+  if (
+    config.settleMinutes > 0 &&
+    input.eventAt !== undefined &&
+    input.draftId !== undefined &&
+    !announced.has(input.draftId)
+  ) {
+    const pending = pendingForDraft(recent, input.draftId);
+    if (pending.length > 0) {
+      const deadlineMs = settleDeadlineMs(input.eventAt, config.settleMinutes);
+      if (nowMs < deadlineMs) {
+        throw new StillPublishingError(input.draftId, pending, deadlineMs);
+      }
+      console.warn(
+        `[amplifier] The settle deadline passed for draft ${input.draftId}. Announcing it ` +
+          `without ${pending.join(", ")}.`,
+      );
+      droppedPlatforms = pending;
+    }
+  }
+
   const unannounced = recent.filter((p) => !announced.has(p.draftId));
   const groups = groupPosts(unannounced, config.groupWindowMinutes);
 
@@ -147,6 +176,7 @@ export async function checkPostsImpl(
     notified: notes.filter((n) => n.delivered).length,
     skipped,
     dryRun: config.dryRun,
+    droppedPlatforms,
     notes,
   };
 }

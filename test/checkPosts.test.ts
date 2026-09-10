@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TaskContext } from "@renderinc/sdk/workflows";
 import { checkPostsImpl } from "../src/amplifier/checkPosts.js";
+import { StillPublishingError } from "../src/amplifier/StillPublishingError.js";
 import type { CheckPostsInput } from "../src/config.js";
 import type { PublishedPost } from "../src/typefully/types.js";
 import { post } from "./support/fixtures.js";
@@ -271,7 +272,89 @@ describe("checkPostsImpl", () => {
       notified: 0,
       skipped: 0,
       dryRun: false,
+      droppedPlatforms: [],
       notes: [],
+    });
+  });
+
+  describe("the settle check", () => {
+    const EVENT_AT = "2026-09-04T15:55:00Z";
+    const PENDING = { ...BASE, eventAt: EVENT_AT, draftId: "1" };
+
+    /** A draft that published to LinkedIn with X still in flight. */
+    function pendingPosts(): PublishedPost[] {
+      return [post("1", "2026-09-04T15:54:00Z", ["linkedin"], { pending: ["x"] })];
+    }
+
+    it("throws and posts nothing while a platform is still publishing", async () => {
+      const { ctx, calls } = runCtx({
+        "typefully.listPublished": () => ({ posts: pendingPosts() }),
+      });
+
+      await expect(check(ctx, PENDING)).rejects.toThrow(StillPublishingError);
+      expect(calls.filter((c) => c.name === "amplifier.postNote")).toHaveLength(0);
+      expect(calls.filter((c) => c.name === "kv.lock")).toHaveLength(0);
+    });
+
+    it("announces without the pending platform once the deadline passes", async () => {
+      const { ctx, calls } = runCtx({
+        "typefully.listPublished": () => ({ posts: pendingPosts() }),
+      });
+
+      const result = await check(ctx, { ...PENDING, now: "2026-09-04T16:06:00Z" });
+
+      expect(calls.filter((c) => c.name === "amplifier.postNote")).toHaveLength(1);
+      expect(result.droppedPlatforms).toEqual(["x"]);
+      expect(result.notified).toBe(1);
+    });
+
+    it("posts a complete draft on the first attempt", async () => {
+      const { ctx } = runCtx({
+        "typefully.listPublished": () => ({
+          posts: [post("1", "2026-09-04T15:54:00Z", ["x", "linkedin"])],
+        }),
+      });
+
+      const result = await check(ctx, PENDING);
+
+      expect(result.notified).toBe(1);
+      expect(result.droppedPlatforms).toEqual([]);
+    });
+
+    it("does not throw for a pending draft an earlier run already announced", async () => {
+      const { ctx } = runCtx({
+        "typefully.listPublished": () => ({ posts: pendingPosts() }),
+        "kv.get": () => ({ value: "announced" }),
+      });
+
+      const result = await check(ctx, PENDING);
+
+      expect(result.skipped).toBe(1);
+      expect(result.notified).toBe(0);
+    });
+
+    it("does not throw for an event about a draft outside the window", async () => {
+      const { ctx } = runCtx({
+        "typefully.listPublished": () => ({
+          posts: [post("2", "2026-09-04T15:54:00Z", ["x"])],
+        }),
+      });
+
+      const result = await check(ctx, { ...PENDING, draftId: "404" });
+
+      expect(result.notified).toBe(1);
+      expect(result.droppedPlatforms).toEqual([]);
+    });
+
+    it("never throws when settleMinutes is 0", async () => {
+      const { ctx } = runCtx({
+        "typefully.listPublished": () => ({ posts: pendingPosts() }),
+      });
+
+      const result = await check(ctx, { ...PENDING, settleMinutes: 0 });
+
+      expect(result.notified).toBe(1);
+      expect(result.droppedPlatforms).toEqual([]);
     });
   });
 });
