@@ -78,7 +78,7 @@ export function loadConfig(
     ),
     seenTtlSeconds: seenTtlDays * 86_400,
     ...(slackChannel ? { slackChannel } : {}),
-    callToAction: input.callToAction ?? env.AMPLIFIER_CALL_TO_ACTION ?? DEFAULT_CALL_TO_ACTION,
+    callToAction: text(input.callToAction, env.AMPLIFIER_CALL_TO_ACTION, DEFAULT_CALL_TO_ACTION),
     summaryModel: text(input.summaryModel, env.AMPLIFIER_SUMMARY_MODEL, DEFAULT_SUMMARY_MODEL),
     dryRun: input.dryRun ?? env.DRY_RUN !== "false",
   };

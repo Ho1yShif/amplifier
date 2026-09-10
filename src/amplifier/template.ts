@@ -65,7 +65,7 @@ export function renderNote(group: PostGroup, opts: RenderNoteOptions = {}): Post
   const bullet = links.length > 1 ? "• " : "";
   const linkList = links.map((l) => `${bullet}${linkMrkdwn(l, group.shareUrl)}`).join("\n");
   const summary = opts.summary?.trim();
-  const lead = summary || (opts.callToAction ?? DEFAULT_CALL_TO_ACTION);
+  const lead = summary || opts.callToAction?.trim() || DEFAULT_CALL_TO_ACTION;
 
   const blocks: string[] = [];
   if (summary) {

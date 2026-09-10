@@ -67,6 +67,18 @@ describe("loadConfig", () => {
     expect(loadConfig({}, { AMPLIFIER_SEEN_TTL_DAYS: "  " }).seenTtlSeconds).toBe(30 * 86_400);
   });
 
+  it("treats a blank call to action as unset", () => {
+    expect(loadConfig({}, { AMPLIFIER_CALL_TO_ACTION: "" }).callToAction).toBe(
+      DEFAULT_CALL_TO_ACTION,
+    );
+  });
+
+  it("treats a whitespace-only call to action as unset", () => {
+    expect(loadConfig({}, { AMPLIFIER_CALL_TO_ACTION: "  " }).callToAction).toBe(
+      DEFAULT_CALL_TO_ACTION,
+    );
+  });
+
   it("throws on a non-numeric env value", () => {
     expect(() => loadConfig({}, { AMPLIFIER_LOOKBACK_MINUTES: "soon" })).toThrow(
       "AMPLIFIER_LOOKBACK_MINUTES must be a whole number of at least 1",

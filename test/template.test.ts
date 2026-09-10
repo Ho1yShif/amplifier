@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { notePlatforms, renderNote } from "../src/amplifier/template.js";
+import { DEFAULT_CALL_TO_ACTION, notePlatforms, renderNote } from "../src/amplifier/template.js";
 import type { PostGroup } from "../src/amplifier/group.js";
 import { group } from "./support/fixtures.js";
 
@@ -43,6 +43,16 @@ describe("renderNote", () => {
   it("takes a custom call to action", () => {
     const note = renderNote(crossPost, { callToAction: "Boost it please." });
     expect(note.markdown).toContain("Boost it please.");
+  });
+
+  it("falls back to the default when the call to action is empty", () => {
+    const note = renderNote(crossPost, { callToAction: "" });
+    expect(note.markdown?.startsWith(DEFAULT_CALL_TO_ACTION)).toBe(true);
+  });
+
+  it("falls back to the default when the call to action is whitespace-only", () => {
+    const note = renderNote(crossPost, { callToAction: "   " });
+    expect(note.markdown?.startsWith(DEFAULT_CALL_TO_ACTION)).toBe(true);
   });
 
   it("sets no title and a plain-text fallback with no bare URL", () => {
