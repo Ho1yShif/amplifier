@@ -32,7 +32,8 @@ projects:
             region: oregon
             maxmemoryPolicy: noeviction
             # Reachable only over the private network, so the Workflow service
-            # must sit in this same project, environment, and region.
+            # must be in this same workspace and region. Its project and
+            # environment do not have to match.
             ipAllowList: []
 
         envVarGroups:

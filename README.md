@@ -114,25 +114,73 @@ The stub listens on port 8787. Set `STUB_PORT` to use a different one.
 
 ## Deployment
 
-Applying a Blueprint, creating a Workflow service, and giving a workspace access to a private repo have no API or CLI path, so every step below except the `ping` check happens in the Render Dashboard.
+`render.yaml` covers the webhook receiver, the Key Value instance, and the env groups. The Workflow
+service is created separately, because Blueprints do not support Workflow services yet. Applying a
+Blueprint and giving a workspace access to a private repo both happen in the Render Dashboard;
+neither has an API or CLI path.
+
+For the Render team, steps 1 through 3 are done: workflow `amplifier`, workspace Render-DX, region
+Oregon, built from `main`.
 
 1. Give the workspace that will own the project access to this repo, under Settings > GitHub. The repo is private, so Render cannot clone it until then. For the Render team, that workspace is Render-DX.
-2. Create a Workflow service from this repo on branch `main`, language Node, with build `pnpm install && pnpm build` and start `node dist/main.js`. Put it in project `amplifier`, environment `Production`, region Oregon, the same as the services in `render.yaml`. The Key Value instance is reachable only over the private network within its own environment, so a Workflow service anywhere else fails to connect. Note the service's slug.
-3. Run `render workflows start <slug-from-step-2>/ping --input='[]'` to confirm the task registry loaded, before any secret is set. `ping` takes no arguments, so the input array is empty, and it returns `pong`. If the task list is empty, the build shipped but `dist/main.js` registered nothing, and the deploy logs say why.
+2. Create the Workflow service, following [Creating the Workflow service](#creating-the-workflow-service) below. Note the slug it prints.
+3. Run `render workflows start <slug>/ping --input='[]'` to confirm the task registry loaded, before any secret is set. `ping` takes no arguments, so the input array is empty, and it returns `pong`. If the task list is empty, the build shipped but `dist/main.js` registered nothing, and the deploy logs say why.
 4. Apply `render.yaml`, with the Deploy to Render button above or from the Dashboard, to create the `amplifier-webhook` service, the Key Value instance, and two env groups: `amplifier-triggers` and `amplifier-workflow`. Set `RENDER_API_KEY` to a key for the workspace that owns the Workflow service, and set `WORKFLOW_SLUG` to the slug from step 2.
-5. Confirm the apply landed in the project from step 2. `render.yaml` names project `amplifier` and environment `Production`, so it should. If it created a second project, move the receiver and the Key Value instance into the Workflow service's environment before going on, because the internal connection string does not resolve across environments.
+5. Confirm `amplifier-kv` landed in region Oregon. `render.yaml` names Oregon, so it should. The Workflow service reaches it over the private network as long as both are in Oregon in the same workspace; the project and the environment do not have to match.
 6. On the Workflow service, link the `amplifier-workflow` env group and set its `ANTHROPIC_API_KEY`. The group holds the vendor keys the Workflow service reads, and it is linked in the Dashboard because Blueprints do not support Workflow services, so `render.yaml` cannot reference it. Then set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, a Slack credential (see below), `DRY_RUN=true`, and `REDIS_URL` (the `amplifier-kv` internal connection string) on the service itself.
 7. Confirm the link took: the Workflow service's environment page lists `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5` from the group. If it does not, the group exists but is not linked, and every note will carry `(Summarization LLM call failed)`.
 8. Register the receiver in Typefully. Copy the `amplifier-webhook` service's `onrender.com` URL, append `/webhooks/typefully`, and add that URL under Settings > API, subscribed to `draft.published`. Typefully then shows a signing secret; copy it into `TYPEFULLY_WEBHOOK_SECRET` in the `amplifier-triggers` env group. The secret does not exist until the webhook is registered, so this order matters.
 9. Leave `DRY_RUN=true` for a couple of published posts and read the Workflow logs.
 10. Set `DRY_RUN=false`.
 
+### Creating the Workflow service
+
+With the Render CLI, version 2.26.0 or newer, from a checkout of this repo:
+
+```bash
+render workspace set     # the workspace from step 1
+render workflows create \
+  --name amplifier \
+  --repo . \
+  --branch main \
+  --runtime node \
+  --region oregon \
+  --build-command 'npm install -g pnpm@11.18.0 && pnpm install && pnpm build' \
+  --run-command 'node dist/main.js'
+```
+
+Or in the Dashboard, choose **New > Workflow**, pick this repo, and fill in the form:
+
+| Field          | Value                                                       |
+| -------------- | ----------------------------------------------------------- |
+| Name           | `amplifier`                                                 |
+| Branch         | `main`                                                      |
+| Region         | Oregon                                                      |
+| Language       | Node                                                        |
+| Root Directory | leave blank                                                 |
+| Build Command  | `npm install -g pnpm@11.18.0 && pnpm install && pnpm build` |
+| Start Command  | `node dist/main.js`                                         |
+
+Then click **Deploy Workflow**.
+
+The build command installs pnpm first. Render's Node runtime ships npm, and `package.json` pins
+`pnpm@11.18.0`, so `pnpm install` fails without that line.
+
+Region Oregon matches `amplifier-kv` in `render.yaml`. The private network covers one region within
+one workspace, so a Workflow service in any other region cannot reach the Key Value instance. Keep
+the service out of a network-isolated environment as well, because a Workflow service in one cannot
+reach anything over that environment's private network.
+
+Set the environment variables from step 6 after the service exists, or pass them to
+`render workflows create` with `--env-var KEY=VALUE` and `--env-file`. `REDIS_URL` cannot be set
+this way on a first pass, because `amplifier-kv` does not exist until step 4.
+
 ### Manual re-run
 
 The webhook is the only trigger, so a dropped delivery means a post nobody announces. Start a run by hand:
 
 ```bash
-render workflows start <slug-from-step-2>/amplifier.checkPosts --input='[{}]'
+render workflows start <slug>/amplifier.checkPosts --input='[{}]'
 ```
 
 `amplifier.checkPosts` takes no event, so it scans the whole 90-minute lookback. The announced markers mean it posts what was missed and nothing else.
@@ -202,12 +250,12 @@ Default call to action: "New Render social post! Please like and share when you 
 
 The table above covers the Workflow service. These variables belong to the `amplifier-webhook` service.
 
-| Variable                   | Default | Range | Notes                                                                                               |
-| -------------------------- | ------- | ----- | --------------------------------------------------------------------------------------------------- |
-| `RENDER_API_KEY`           | —       | —     | Required. Authenticates the dispatch call to the Render API.                                        |
-| `WORKFLOW_SLUG`            | —       | —     | Required. Set by hand in the Dashboard to the Workflow service's slug from deployment step 2.       |
-| `TYPEFULLY_WEBHOOK_SECRET` | —       | —     | Required. The signing secret from Typefully, Settings > API. Unset means every delivery gets a 401. |
-| `PORT`                     | `3000`  | —     | Render sets this. Only needed to run the receiver locally.                                          |
+| Variable                   | Default | Range | Notes                                                                                                   |
+| -------------------------- | ------- | ----- | ------------------------------------------------------------------------------------------------------- |
+| `RENDER_API_KEY`           | —       | —     | Required. Authenticates the dispatch call to the Render API.                                            |
+| `WORKFLOW_SLUG`            | —       | —     | Required. Set by hand in the Dashboard to the Workflow service's slug, `amplifier` for the Render team. |
+| `TYPEFULLY_WEBHOOK_SECRET` | —       | —     | Required. The signing secret from Typefully, Settings > API. Unset means every delivery gets a 401.     |
+| `PORT`                     | `3000`  | —     | Render sets this. Only needed to run the receiver locally.                                              |
 
 ## Adding Twitter or LinkedIn directly
 
