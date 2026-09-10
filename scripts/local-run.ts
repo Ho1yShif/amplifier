@@ -8,7 +8,9 @@
  * The argument is how many runs to do in a row. Two is the interesting number:
  * the first reports notified 2, the second reports notified 0 and skipped 2,
  * which proves the announce-once guarantee holds across runs, without
- * deploying and without a Typefully key.
+ * deploying and without a Typefully key. The same guarantee makes the
+ * amplifier.handleEvent retry safe, because a retry that follows a delivered
+ * note reads the seen marker and announces nothing.
  *
  * localCtx executes each chained task in this process with no retries and no
  * timeouts, so this checks the wiring and the Key Value state, not durability.
