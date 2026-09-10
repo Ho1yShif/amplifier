@@ -155,7 +155,7 @@ manifest.
 | `AMPLIFIER_LOOKBACK_MINUTES`     | `90`                        | ≥ 1   | Wider than the 30-minute schedule, so a skipped run catches up.                                                            |
 | `AMPLIFIER_GROUP_WINDOW_MINUTES` | `10`                        | ≥ 0   | How close two drafts must be to share a note. `0` turns grouping off.                                                      |
 | `AMPLIFIER_SEEN_TTL_DAYS`        | `30`                        | ≥ 1   | How long a draft stays marked as announced.                                                                                |
-| `AMPLIFIER_LIMIT`                | `25`                        | 1–100 | Drafts pulled per run, and the run's widest burst of concurrent Key Value calls.                                           |
+| `AMPLIFIER_LIMIT`                | `25`                        | 1–50  | Drafts pulled per run, and the run's widest burst of concurrent Key Value calls.                                           |
 | `AMPLIFIER_CALL_TO_ACTION`       | see below                   | —     | The lead line used when the summary fails.                                                                                 |
 | `AMPLIFIER_SUMMARY_MODEL`        | `anthropic/claude-sonnet-5` | —     | The model that writes the lead line. The provider prefix is required. Takes precedence over `tasks-llm`'s own `LLM_MODEL`. |
 

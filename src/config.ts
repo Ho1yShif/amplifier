@@ -33,8 +33,10 @@ export interface AmplifierConfig {
  * Most drafts one run may pull, and so the widest burst of concurrent Key Value
  * subtasks a run can open. `announcedDraftIds` and `markAnnounced` dispatch one
  * `ctx.run` per draft at once, so the limit and the burst are the same number.
+ *
+ * Capped at 50 because Typefully rejects a larger `limit` with a 422.
  */
-export const MAX_LIMIT = 100;
+export const MAX_LIMIT = 50;
 
 interface Bounds {
   /** Used when the override is absent and the environment variable is unset or blank. */
