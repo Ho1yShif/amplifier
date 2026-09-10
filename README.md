@@ -101,13 +101,17 @@ The stub listens on port 8787. Set `STUB_PORT` to use a different one.
 
 ## Deployment
 
-1. Create a Workflow service in the Render Dashboard from this repo, with build `pnpm install && pnpm build` and start `node dist/main.js`. Put it in project `amplifier`, environment `Production`, region Oregon, the same as the services in `render.yaml`. The Key Value instance is reachable only over the private network within its own environment, so a Workflow service anywhere else fails to connect. Note the service's slug.
-2. Run `render workflows start <slug-from-step-1>/ping --input='[]'` to confirm the task registry loaded, before any secret is set. `ping` takes no arguments, so the input array is empty.
-3. Apply `render.yaml` to create the cron job, the Key Value instance, and two env groups: `amplifier-triggers` and `amplifier-workflow`. Set `RENDER_API_KEY`, and set `WORKFLOW_SLUG` to the slug from step 1.
-4. On the Workflow service, link the `amplifier-workflow` env group and set its `ANTHROPIC_API_KEY`. The group holds the vendor keys the Workflow service reads, and it is linked in the Dashboard because Blueprints do not support Workflow services, so `render.yaml` cannot reference it. Then set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, a Slack credential (see below), `DRY_RUN=true`, and `REDIS_URL` (the `amplifier-kv` internal connection string) on the service itself.
-5. Confirm the link took: the Workflow service's environment page lists `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5` from the group. If it does not, the group exists but is not linked, and every note will carry `(Summarization LLM call failed)`.
-6. Leave `DRY_RUN=true` for a couple of cron runs and read the Workflow logs.
-7. Set `DRY_RUN=false`.
+Applying a Blueprint, creating a Workflow service, and giving a workspace access to a private repo have no API or CLI path, so every step below except the `ping` check happens in the Render Dashboard.
+
+1. Give the workspace that will own the project access to this repo, under Settings > GitHub. The repo is private, so Render cannot clone it until then. For the Render team, that workspace is Render-DX.
+2. Create a Workflow service from this repo on branch `main`, language Node, with build `pnpm install && pnpm build` and start `node dist/main.js`. Put it in project `amplifier`, environment `Production`, region Oregon, the same as the services in `render.yaml`. The Key Value instance is reachable only over the private network within its own environment, so a Workflow service anywhere else fails to connect. Note the service's slug.
+3. Run `render workflows start <slug-from-step-2>/ping --input='[]'` to confirm the task registry loaded, before any secret is set. `ping` takes no arguments, so the input array is empty, and it returns `pong`. If the task list is empty, the build shipped but `dist/main.js` registered nothing, and the deploy logs say why.
+4. Apply `render.yaml` to create the cron job, the Key Value instance, and two env groups: `amplifier-triggers` and `amplifier-workflow`. Set `RENDER_API_KEY` to a key for the workspace that owns the Workflow service, and set `WORKFLOW_SLUG` to the slug from step 2.
+5. Confirm the apply landed in the project from step 2. `render.yaml` names project `amplifier` and environment `Production`, so it should. If it created a second project, move the cron job and the Key Value instance into the Workflow service's environment before going on, because the internal connection string does not resolve across environments.
+6. On the Workflow service, link the `amplifier-workflow` env group and set its `ANTHROPIC_API_KEY`. The group holds the vendor keys the Workflow service reads, and it is linked in the Dashboard because Blueprints do not support Workflow services, so `render.yaml` cannot reference it. Then set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, a Slack credential (see below), `DRY_RUN=true`, and `REDIS_URL` (the `amplifier-kv` internal connection string) on the service itself.
+7. Confirm the link took: the Workflow service's environment page lists `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5` from the group. If it does not, the group exists but is not linked, and every note will carry `(Summarization LLM call failed)`.
+8. Leave `DRY_RUN=true` for a couple of cron runs and read the Workflow logs.
+9. Set `DRY_RUN=false`.
 
 ## Slack credentials
 
@@ -172,7 +176,7 @@ The table above covers the Workflow service. These variables belong to the `ampl
 | Variable         | Default                | Range | Notes                                                                                         |
 | ---------------- | ---------------------- | ----- | --------------------------------------------------------------------------------------------- |
 | `RENDER_API_KEY` | —                      | —     | Required. Authenticates the dispatch call to the Render API.                                  |
-| `WORKFLOW_SLUG`  | —                      | —     | Required. Set by hand in the Dashboard to the Workflow service's slug from deployment step 1. |
+| `WORKFLOW_SLUG`  | —                      | —     | Required. Set by hand in the Dashboard to the Workflow service's slug from deployment step 2. |
 | `CRON_TASK`      | `amplifier.checkPosts` | —     | The task the cron service dispatches.                                                         |
 | `CRON_INPUT`     | `{}`                   | —     | The input passed to the dispatched task.                                                      |
 

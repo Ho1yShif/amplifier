@@ -7,13 +7,25 @@ const PLATFORM_FIELDS: Record<Platform, { at: keyof TypefullyDraft; url: keyof T
   x: { at: "x_post_published_at", url: "x_published_url" },
 };
 
+/** A raw field's value when it is a non-empty string, else undefined. */
+function str(value: unknown): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
 /**
  * Map a raw Typefully draft to a PublishedPost, or null when it is not an
  * announcement: no id, or no X/LinkedIn platform with a publish timestamp.
  *
- * A platform counts as published on its own `*_post_published_at`, not on
- * `*_post_enabled` — enabled means it was queued for that platform, which is
- * still true while the publish is in flight or after it errored.
+ * A platform counts as published on its own `*_post_published_at` or its
+ * `*_published_url`, not on `*_post_enabled` — enabled means it was queued for
+ * that platform, which is still true while the publish is in flight or after it
+ * errored. A permalink only exists once the post is live. Typefully sets
+ * `x_published_url` but never `x_post_published_at`, so X needs the URL rule.
+ *
+ * When a platform has a permalink but no timestamp of its own, the link takes
+ * the draft's `published_at`. That is the draft's time rather than the
+ * platform's, off by seconds in practice, which is well inside the grouping
+ * window.
  */
 export function mapDraft(raw: TypefullyDraft): PublishedPost | null {
   if (raw.id === undefined || raw.id === null || raw.id === "") return null;
@@ -21,12 +33,14 @@ export function mapDraft(raw: TypefullyDraft): PublishedPost | null {
   const links: PlatformLink[] = [];
   for (const platform of Object.keys(PLATFORM_FIELDS) as Platform[]) {
     const fields = PLATFORM_FIELDS[platform];
-    const publishedAt = raw[fields.at];
-    if (typeof publishedAt !== "string" || publishedAt === "") continue;
-    const url = raw[fields.url];
+    const platformAt = str(raw[fields.at]);
+    const url = str(raw[fields.url]);
+    if (platformAt === undefined && url === undefined) continue;
+    const publishedAt = platformAt ?? str(raw.published_at);
+    if (publishedAt === undefined) continue;
     links.push({
       platform,
-      ...(typeof url === "string" && url !== "" ? { url } : {}),
+      ...(url !== undefined ? { url } : {}),
       publishedAt,
     });
   }

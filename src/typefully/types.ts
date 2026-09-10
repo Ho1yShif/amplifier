@@ -8,7 +8,7 @@ export interface PlatformLink {
   platform: Platform;
   /** Permalink to the live post. Absent when Typefully has not reported one yet. */
   url?: string;
-  /** ISO 8601 timestamp this platform published at. */
+  /** ISO 8601 timestamp this platform published at, or the draft's when it reports none. */
   publishedAt: string;
 }
 
@@ -34,16 +34,19 @@ export interface PublishedPost {
 export interface TypefullyDraft {
   id?: string | number;
   preview?: string;
-  /** Not read. `mapDraft` decides a platform published from its own timestamp field. */
+  /** Not read. `mapDraft` decides a platform published from its own fields. */
   status?: string;
-  /** Not read. `mapDraft` uses the per-platform `*_post_published_at` fields to decide. */
+  /** The draft's publish time. Used as a link's timestamp when the platform has none. */
   published_at?: string | null;
   share_url?: string | null;
-  /** Not read. `mapDraft` uses `x_post_published_at` to decide whether X published. */
+  /** Not read. `mapDraft` uses `x_published_url` to decide whether X published. */
   x_post_enabled?: boolean;
   x_post_published_at?: string | null;
   x_published_url?: string | null;
-  /** Not read. `mapDraft` uses `linkedin_post_published_at` to decide whether LinkedIn published. */
+  /**
+   * Not read. `mapDraft` uses `linkedin_post_published_at` or
+   * `linkedin_published_url` to decide whether LinkedIn published.
+   */
   linkedin_post_enabled?: boolean;
   linkedin_post_published_at?: string | null;
   linkedin_published_url?: string | null;

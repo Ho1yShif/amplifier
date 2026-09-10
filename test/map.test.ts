@@ -63,6 +63,50 @@ describe("mapDraft", () => {
     expect(post?.links.map((l) => l.platform)).toEqual(["x"]);
   });
 
+  it("keeps X when Typefully reports a permalink but no X timestamp", () => {
+    const post = mapDraft({
+      id: 10628613,
+      published_at: "2026-09-09T19:59:02.160Z",
+      x_post_published_at: null,
+      x_published_url: "https://x.com/render/status/2097776813036765567",
+      linkedin_post_published_at: "2026-09-09T19:59:04.795Z",
+      linkedin_published_url:
+        "https://www.linkedin.com/feed/update/urn:li:share:7503542514444865536",
+    });
+    expect(post?.links).toEqual([
+      {
+        platform: "x",
+        url: "https://x.com/render/status/2097776813036765567",
+        publishedAt: "2026-09-09T19:59:02.160Z",
+      },
+      {
+        platform: "linkedin",
+        url: "https://www.linkedin.com/feed/update/urn:li:share:7503542514444865536",
+        publishedAt: "2026-09-09T19:59:04.795Z",
+      },
+    ]);
+    expect(post?.publishedAt).toBe("2026-09-09T19:59:02.160Z");
+  });
+
+  it("announces an X-only draft that has no X timestamp", () => {
+    const post = mapDraft({
+      id: 10586221,
+      published_at: "2026-09-10T17:00:09.241Z",
+      x_published_url: "https://x.com/render/status/2098094182632165398",
+    });
+    expect(post?.links).toEqual([
+      {
+        platform: "x",
+        url: "https://x.com/render/status/2098094182632165398",
+        publishedAt: "2026-09-10T17:00:09.241Z",
+      },
+    ]);
+  });
+
+  it("skips a platform whose permalink has no timestamp anywhere", () => {
+    expect(mapDraft({ id: 11, x_published_url: "https://x.com/render/status/11" })).toBeNull();
+  });
+
   it("returns null when no platform published", () => {
     expect(mapDraft({ id: 9, status: "scheduled" })).toBeNull();
   });

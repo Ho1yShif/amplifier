@@ -29,6 +29,9 @@ function minutesAgo(minutes: number): string {
 /**
  * Draft 101 is a cross-post: one note covering X and LinkedIn four minutes
  * apart. Draft 102 is X only, far enough back to be its own note.
+ *
+ * Neither draft sets `x_post_published_at`, because the real API never does.
+ * X carries only `x_published_url`, and its link time comes from `published_at`.
  */
 const DRAFTS: TypefullyDraft[] = [
   {
@@ -38,7 +41,7 @@ const DRAFTS: TypefullyDraft[] = [
     published_at: minutesAgo(20),
     share_url: "https://typefully.com/t/101",
     x_post_enabled: true,
-    x_post_published_at: minutesAgo(20),
+    x_post_published_at: null,
     x_published_url: "https://x.com/render/status/101",
     linkedin_post_enabled: true,
     linkedin_post_published_at: minutesAgo(16),
@@ -51,7 +54,7 @@ const DRAFTS: TypefullyDraft[] = [
     published_at: minutesAgo(55),
     share_url: "https://typefully.com/t/102",
     x_post_enabled: true,
-    x_post_published_at: minutesAgo(55),
+    x_post_published_at: null,
     x_published_url: "https://x.com/render/status/102",
   },
 ];
