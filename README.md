@@ -156,8 +156,10 @@ manifest.
 | `AMPLIFIER_SUMMARY_MODEL`        | `anthropic/claude-sonnet-5` | —     | The model that writes the lead line. The provider prefix is required. Takes precedence over `tasks-llm`'s own `LLM_MODEL`. |
 
 A numeric variable set to a fraction, to something non-numeric, or to a value outside
-its range fails the run with the variable's name in the error. Leaving any variable
-in this table blank or unset uses its default.
+its range fails the run with the variable's name in the error. `AMPLIFIER_LOOKBACK_MINUTES`,
+`AMPLIFIER_GROUP_WINDOW_MINUTES`, `AMPLIFIER_SEEN_TTL_DAYS`, `AMPLIFIER_LIMIT`,
+`AMPLIFIER_CALL_TO_ACTION`, and `AMPLIFIER_SUMMARY_MODEL` use their default when left
+blank or unset. Every other variable in the table has no default.
 
 Default call to action: "New Render social post! Please like and share when you have a minute"
 
