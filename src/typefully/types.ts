@@ -23,6 +23,8 @@ export interface PublishedPost {
   shareUrl?: string;
   /** One entry per platform that published. Never empty. */
   links: PlatformLink[];
+  /** Platforms this draft was queued for that have not reported a permalink yet. */
+  pending: Platform[];
 }
 
 /**
@@ -34,19 +36,15 @@ export interface PublishedPost {
 export interface TypefullyDraft {
   id?: string | number;
   preview?: string;
-  /** Not read. `mapDraft` decides a platform published from its own fields. */
   status?: string;
   /** The draft's publish time. Used as a link's timestamp when the platform has none. */
   published_at?: string | null;
   share_url?: string | null;
-  /** Not read. `mapDraft` uses `x_published_url` to decide whether X published. */
+  /** Queued for X. Enabled with no permalink means the publish is in flight. */
   x_post_enabled?: boolean;
   x_post_published_at?: string | null;
   x_published_url?: string | null;
-  /**
-   * Not read. `mapDraft` uses `linkedin_post_published_at` or
-   * `linkedin_published_url` to decide whether LinkedIn published.
-   */
+  /** Queued for LinkedIn. Enabled with no permalink means the publish is in flight. */
   linkedin_post_enabled?: boolean;
   linkedin_post_published_at?: string | null;
   linkedin_published_url?: string | null;

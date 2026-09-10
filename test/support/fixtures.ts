@@ -22,6 +22,7 @@ export function post(
       url: `https://example.com/${platform}/${draftId}`,
       publishedAt: at,
     })),
+    pending: [],
     ...overrides,
   };
 }

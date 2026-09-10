@@ -35,6 +35,7 @@ describe("mapDraft", () => {
           publishedAt: "2026-09-04T15:02:00Z",
         },
       ],
+      pending: [],
     });
   });
 
@@ -105,6 +106,45 @@ describe("mapDraft", () => {
 
   it("skips a platform whose permalink has no timestamp anywhere", () => {
     expect(mapDraft({ id: 11, x_published_url: "https://x.com/render/status/11" })).toBeNull();
+  });
+
+  it("reports an enabled platform with no permalink as pending", () => {
+    const post = mapDraft({
+      id: 12,
+      x_post_enabled: true,
+      linkedin_post_enabled: true,
+      linkedin_post_published_at: "2026-09-04T15:00:00Z",
+      linkedin_published_url: "https://linkedin.com/feed/update/12",
+    });
+    expect(post?.pending).toEqual(["x"]);
+  });
+
+  it("reports a platform that has both a timestamp and no permalink as pending", () => {
+    const post = mapDraft({
+      id: 13,
+      x_post_enabled: true,
+      x_post_published_at: "2026-09-04T15:00:00Z",
+    });
+    expect(post?.pending).toEqual(["x"]);
+    expect(post?.links.map((l) => l.platform)).toEqual(["x"]);
+  });
+
+  it("does not report a platform that is not enabled as pending", () => {
+    const post = mapDraft({
+      id: 14,
+      x_post_published_at: "2026-09-04T15:00:00Z",
+      linkedin_post_published_at: "2026-09-04T15:00:00Z",
+    });
+    expect(post?.pending).toEqual([]);
+  });
+
+  it("maps a draft with neither platform enabled to an empty pending", () => {
+    const post = mapDraft({
+      id: 15,
+      published_at: "2026-09-04T15:00:00Z",
+      x_published_url: "https://x.com/render/status/15",
+    });
+    expect(post?.pending).toEqual([]);
   });
 
   it("returns null when no platform published", () => {
