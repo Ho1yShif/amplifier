@@ -100,7 +100,7 @@ This runs every task in one process with no retries and no timeouts, so it check
 
 ## Slack credentials
 
-Optionally, create a Slack channel for testing. If not, prepare a the Slack channel you will use in production and ensure it's ready to test below.
+Pick the Slack channel the notes will go to. If the production channel is busy, use a test channel first.
 
 `slack-app-manifest.yaml` defines the app. At <https://api.slack.com/apps>, choose
 **Create New App > From a manifest > Continue**, pick the workspace, and paste the file as YAML. Click **Next > Create and Install**.
