@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { PostGroup } from "../src/amplifier/group.js";
 import { isSummary, summarizeGroup } from "../src/summary/summarize.js";
+import { group as buildGroup } from "./support/fixtures.js";
 import { taskCtx, type TaskHandlers } from "./support/taskCtx.js";
 
-const group: PostGroup = {
-  draftIds: ["1"],
+const group = buildGroup({
   previews: ["We cut cold starts on Render by 40%."],
-  publishedAt: "2026-09-04T15:00:00Z",
   links: [
     {
       platform: "linkedin",
@@ -15,7 +14,7 @@ const group: PostGroup = {
     },
     { platform: "x", url: "https://x.com/render/status/1", publishedAt: "2026-09-04T15:02:00Z" },
   ],
-};
+});
 
 function ctxFor(overrides: TaskHandlers = {}) {
   return taskCtx({

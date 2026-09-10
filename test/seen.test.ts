@@ -9,18 +9,17 @@ import {
   seenKey,
   INFLIGHT_TTL_SECONDS,
 } from "../src/amplifier/seen.js";
-import type { PostGroup } from "../src/amplifier/group.js";
+import { group as buildGroup } from "./support/fixtures.js";
 import { taskCtx } from "./support/taskCtx.js";
 
-const group: PostGroup = {
+const group = buildGroup({
   draftIds: ["1", "2"],
   previews: ["a", "b"],
-  publishedAt: "2026-09-04T15:00:00Z",
   links: [
     { platform: "x", url: "https://x.com/a", publishedAt: "2026-09-04T15:00:00Z" },
     { platform: "linkedin", url: "https://linkedin.com/b", publishedAt: "2026-09-04T15:01:00Z" },
   ],
-};
+});
 
 const TOKEN = "amplifier:run:this-run";
 

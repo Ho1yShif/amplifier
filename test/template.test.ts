@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { notePlatforms, renderNote } from "../src/amplifier/template.js";
 import type { PostGroup } from "../src/amplifier/group.js";
+import { group } from "./support/fixtures.js";
 
-const crossPost: PostGroup = {
-  draftIds: ["1"],
+const crossPost = group({
   previews: ["We cut cold starts on Render by 40%."],
-  publishedAt: "2026-09-04T15:00:00Z",
   shareUrl: "https://typefully.com/t/abc",
   links: [
     {
@@ -15,7 +14,7 @@ const crossPost: PostGroup = {
     },
     { platform: "x", url: "https://x.com/render/status/1", publishedAt: "2026-09-04T15:02:00Z" },
   ],
-};
+});
 
 describe("renderNote", () => {
   it("links every platform in one message", () => {

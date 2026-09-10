@@ -1,20 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { groupPosts } from "../src/amplifier/group.js";
-import type { Platform, PublishedPost } from "../src/typefully/types.js";
-
-function post(draftId: string, at: string, platforms: Platform[]): PublishedPost {
-  return {
-    draftId,
-    preview: `preview ${draftId}`,
-    publishedAt: at,
-    shareUrl: `https://typefully.com/t/${draftId}`,
-    links: platforms.map((platform) => ({
-      platform,
-      url: `https://example.com/${platform}/${draftId}`,
-      publishedAt: at,
-    })),
-  };
-}
+import { post } from "./support/fixtures.js";
 
 describe("groupPosts", () => {
   it("keeps a cross-posted draft as one group with both links", () => {

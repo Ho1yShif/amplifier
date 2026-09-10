@@ -1,17 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { withinWindow } from "../src/amplifier/window.js";
-import type { PublishedPost } from "../src/typefully/types.js";
+import { post } from "./support/fixtures.js";
 
 const NOW = Date.parse("2026-09-04T16:00:00Z");
-
-function post(draftId: string, publishedAt: string): PublishedPost {
-  return {
-    draftId,
-    preview: "p",
-    publishedAt,
-    links: [{ platform: "x", url: "https://x.com/render/status/1", publishedAt }],
-  };
-}
 
 describe("withinWindow", () => {
   it("keeps a post inside the window", () => {

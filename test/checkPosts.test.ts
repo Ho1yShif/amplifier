@@ -3,22 +3,10 @@ import type { TaskContext } from "@renderinc/sdk/workflows";
 import { checkPostsImpl } from "../src/amplifier/checkPosts.js";
 import type { CheckPostsInput } from "../src/config.js";
 import type { PublishedPost } from "../src/typefully/types.js";
+import { post } from "./support/fixtures.js";
 import { taskCtx, type TaskHandlers } from "./support/taskCtx.js";
 
 const NOW = "2026-09-04T16:00:00Z";
-
-function post(draftId: string, at: string, platforms: Array<"x" | "linkedin">): PublishedPost {
-  return {
-    draftId,
-    preview: `preview ${draftId}`,
-    publishedAt: at,
-    links: platforms.map((platform) => ({
-      platform,
-      url: `https://example.com/${platform}/${draftId}`,
-      publishedAt: at,
-    })),
-  };
-}
 
 /** ctx.run dispatched by task name, with sensible defaults per task. */
 function runCtx(overrides: TaskHandlers = {}) {
