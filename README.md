@@ -40,10 +40,15 @@ render workflows dev -- pnpm dev
 # in another terminal:
 render workflows tasks list --local
 render workflows start amplifier.checkPosts --local --input='[{}]'
-pnpm check         # format, typecheck, and test; run before committing
 ```
 
 `DRY_RUN=true` is the default, so a local run logs the note it would post and writes nothing to Slack.
+
+Run this before committing:
+
+```bash
+pnpm check
+```
 
 ### End-to-end run with no credentials
 
