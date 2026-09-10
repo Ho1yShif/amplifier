@@ -8,12 +8,48 @@ const PUBLISHED_EVENT = "draft.published";
 const TIMESTAMP_HEADER = "x-typefully-timestamp";
 const SIGNATURE_HEADER = "x-typefully-signature";
 
+/**
+ * How far a delivery's timestamp may be from the receiver's clock.
+ *
+ * Typefully signs the timestamp but never expires it, so without a window a
+ * captured delivery stays valid forever. Stripe and Slack both use 5 minutes;
+ * this is wider because Typefully retries a failed delivery over an hour and
+ * whether it re-signs each attempt is unconfirmed, and a rejected delivery is a
+ * post that never gets announced.
+ */
+const TOLERANCE_MS = 15 * 60_000;
+
 /** Constant-time compare of two strings of any length. */
 function timingSafeEquals(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
   if (left.length !== right.length) return false;
   return timingSafeEqual(left, right);
+}
+
+/**
+ * Whether a signed delivery is recent enough to act on.
+ *
+ * Rejects on both sides of the window, so a clock far ahead fails the same way
+ * one far behind does. Logs the header as received, because no delivery has
+ * reached a real receiver yet and a unit mismatch would otherwise look like a
+ * silent drop.
+ */
+function isFresh(timestamp: string, nowMs: number): boolean {
+  if (!/^\d+$/.test(timestamp)) {
+    console.error(`[amplifier] Rejected a delivery: timestamp ${timestamp} is not Unix seconds.`);
+    return false;
+  }
+  const skewMs = Math.abs(nowMs - Number(timestamp) * 1_000);
+  if (skewMs > TOLERANCE_MS) {
+    console.error(
+      `[amplifier] Rejected a delivery: timestamp ${timestamp} is ` +
+        `${Math.round(skewMs / 60_000)} minutes from this clock, past the ` +
+        `${TOLERANCE_MS / 60_000}-minute window.`,
+    );
+    return false;
+  }
+  return true;
 }
 
 /** The `event` field of a `{ event, data }` envelope, or undefined. */
@@ -49,8 +85,11 @@ export function typefullyWebhook(
 
   return {
     /**
-     * Recompute the HMAC-SHA256 over `${timestamp}.${rawBody}` and compare it
-     * with `X-Typefully-Signature`.
+     * Recompute the HMAC-SHA256 over `${timestamp}.${rawBody}`, compare it with
+     * `X-Typefully-Signature`, then reject a timestamp outside TOLERANCE_MS.
+     *
+     * Freshness is checked after the signature so the rejection log only
+     * records deliveries that were really signed with the secret.
      *
      * The secret is read on each call rather than at import, matching how
      * `typefullyPort` reads its API key. A missing secret returns false, so an
@@ -70,7 +109,8 @@ export function typefullyWebhook(
       if (timestamp === undefined || signature === undefined) return false;
 
       const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
-      return timingSafeEquals(`sha256=${digest}`, signature);
+      if (!timingSafeEquals(`sha256=${digest}`, signature)) return false;
+      return isFresh(timestamp, now().getTime());
     },
 
     /**

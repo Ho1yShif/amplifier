@@ -4,8 +4,14 @@ import { describe, expect, it } from "vitest";
 import { typefullyWebhook } from "../src/typefully/webhook.js";
 
 const SECRET = "whsec_test";
-const TIMESTAMP = "1789000000";
 const NOW = new Date("2026-09-10T18:00:00.000Z");
+/** Unix seconds for NOW, so a delivery signed with it is inside the replay window. */
+const TIMESTAMP = String(NOW.getTime() / 1000);
+
+/** Unix seconds `minutes` before NOW. */
+function minutesAgo(minutes: number): string {
+  return String(NOW.getTime() / 1000 - minutes * 60);
+}
 
 /** The real draft.published body captured in docs/typefully-webhook.md. */
 const PUBLISHED_BODY = readFileSync(
@@ -55,7 +61,7 @@ describe("typefullyWebhook.verify", () => {
   });
 
   it("rejects a signature bound to another timestamp", () => {
-    const req = request(PUBLISHED_BODY, sign(PUBLISHED_BODY, SECRET, "1789000001"));
+    const req = request(PUBLISHED_BODY, sign(PUBLISHED_BODY, SECRET, minutesAgo(1)));
     expect(adapter().verify(req)).toBe(false);
   });
 
@@ -77,6 +83,30 @@ describe("typefullyWebhook.verify", () => {
 
   it("rejects every delivery when the secret is unset", () => {
     expect(adapter({}).verify(request(PUBLISHED_BODY))).toBe(false);
+  });
+
+  it("accepts a signed delivery inside the replay window", () => {
+    const stamp = minutesAgo(14);
+    const req = request(PUBLISHED_BODY, sign(PUBLISHED_BODY, SECRET, stamp), stamp);
+    expect(adapter().verify(req)).toBe(true);
+  });
+
+  it("rejects a signed delivery older than the replay window", () => {
+    const stamp = minutesAgo(16);
+    const req = request(PUBLISHED_BODY, sign(PUBLISHED_BODY, SECRET, stamp), stamp);
+    expect(adapter().verify(req)).toBe(false);
+  });
+
+  it("rejects a signed delivery dated past the replay window", () => {
+    const stamp = minutesAgo(-16);
+    const req = request(PUBLISHED_BODY, sign(PUBLISHED_BODY, SECRET, stamp), stamp);
+    expect(adapter().verify(req)).toBe(false);
+  });
+
+  it("rejects a timestamp that is not Unix seconds", () => {
+    const stamp = "2026-09-10T18:00:00.000Z";
+    const req = request(PUBLISHED_BODY, sign(PUBLISHED_BODY, SECRET, stamp), stamp);
+    expect(adapter().verify(req)).toBe(false);
   });
 });
 

@@ -187,7 +187,7 @@ render workflows start <slug>/amplifier.checkPosts --input='[{}]'
 
 ### Security
 
-The receiver's URL is public, and `verify` is the only thing gating it. A delivery whose HMAC-SHA256 signature does not match `TYPEFULLY_WEBHOOK_SECRET` gets a 401 and starts no run. `POST /tasks/:task` stays shut because `DISPATCH_TOKEN` is unset, which makes that route answer 401 to everything. Do not set it.
+The receiver's URL is public, and `verify` is the only thing gating it. A delivery whose HMAC-SHA256 signature does not match `TYPEFULLY_WEBHOOK_SECRET` gets a 401 and starts no run, and so does one whose timestamp is more than 15 minutes from the receiver's clock. `POST /tasks/:task` stays shut because `DISPATCH_TOKEN` is unset, which makes that route answer 401 to everything. Do not set it.
 
 ## Slack credentials
 

@@ -44,10 +44,17 @@ Sign the bytes as received. Typefully's docs note that it serializes the JSON wi
 separators and sorted keys, which matters only to a receiver that re-serializes the parsed body.
 `createDispatchServer` hands `verify` the raw body, so the receiver never re-serializes.
 
-Typefully also recommends rejecting an old timestamp to prevent replay. `verify` does not, because a
-replayed delivery re-scans the same window and the announced markers in Key Value make it announce
-nothing. A clock difference between Typefully and the receiver would otherwise reject real
-deliveries, and a rejected delivery is a post that never gets announced.
+`verify` rejects a timestamp more than 15 minutes from the receiver's clock, on either side, so a
+captured delivery stops being valid. Stripe and Slack both use 5 minutes. The window here is wider
+because Typefully retries a failed delivery over an hour and whether it re-signs each attempt is
+unconfirmed, and a rejected delivery is a post that never gets announced. A replay inside the window
+costs nothing, because it re-scans the same window and the announced markers in Key Value make it
+announce nothing.
+
+The check reads the header as Unix seconds and logs the header value when it does not parse, so a
+unit that differs from the OpenAPI document shows up in the receiver's logs rather than as a silent
+drop. The signature is checked first, so only a delivery signed with the secret can write that log
+line.
 
 ## Payload
 
