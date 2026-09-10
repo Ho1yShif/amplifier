@@ -1,3 +1,4 @@
+import { MAX_SETTLE_MINUTES } from "./amplifier/retry.js";
 import { DEFAULT_CALL_TO_ACTION } from "./amplifier/template.js";
 import { DEFAULT_SUMMARY_MODEL } from "./summary/model.js";
 
@@ -100,12 +101,14 @@ export function loadConfig(
       { fallback: 10, min: 0 },
     ),
     // A settle window of 0 announces whatever links exist on the first attempt.
-    // Set it to 0 to turn settling off.
+    // Set it to 0 to turn settling off. The maximum is the retry budget on
+    // amplifier.handleEvent, past which the retries run out before the deadline
+    // and the event produces no note at all.
     settleMinutes: whole(
       "AMPLIFIER_SETTLE_MINUTES",
       input.settleMinutes,
       env.AMPLIFIER_SETTLE_MINUTES,
-      { fallback: 10, min: 0 },
+      { fallback: 10, min: 0, max: MAX_SETTLE_MINUTES },
     ),
     seenTtlSeconds: seenTtlDays * 86_400,
     ...(slackChannel ? { slackChannel } : {}),

@@ -1,6 +1,7 @@
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import type { CheckPostsInput } from "../config.js";
 import { checkPostsImpl, type CheckPostsResult } from "./checkPosts.js";
+import { HANDLE_EVENT_RETRY } from "./retry.js";
 
 /**
  * Raw implementation of amplifier.handleEvent.
@@ -24,15 +25,14 @@ export async function handleEventImpl(
 /**
  * Announce the draft a Typefully webhook reported, retrying while it publishes.
  *
- * Four retries at 1m, 2m, 4m, and 8m give a 15-minute settle budget against the
- * 10-minute default deadline, so the deadline ends the wait and the retry count
- * is only the ceiling. Raising AMPLIFIER_SETTLE_MINUTES past 15 makes the
- * retries run out first, and the event is then lost with no note.
+ * HANDLE_EVENT_RETRY gives a 15-minute settle budget against the 10-minute
+ * default deadline, so the deadline ends the wait and the retry count is only
+ * the ceiling. loadConfig caps AMPLIFIER_SETTLE_MINUTES at that same budget.
  */
 export const handleEvent = task(
   {
     name: "amplifier.handleEvent",
-    retry: { maxRetries: 4, waitDurationMs: 60_000, backoffScaling: 2 },
+    retry: HANDLE_EVENT_RETRY,
   },
   handleEventImpl,
 );

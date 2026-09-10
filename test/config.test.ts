@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig, MAX_LIMIT } from "../src/config.js";
+import { MAX_SETTLE_MINUTES } from "../src/amplifier/retry.js";
 import { DEFAULT_CALL_TO_ACTION } from "../src/amplifier/template.js";
 import { DEFAULT_SUMMARY_MODEL } from "../src/summary/model.js";
 
@@ -117,7 +118,18 @@ describe("loadConfig", () => {
 
   it("rejects a negative settle window", () => {
     expect(() => loadConfig({}, { AMPLIFIER_SETTLE_MINUTES: "-1" })).toThrow(
-      "AMPLIFIER_SETTLE_MINUTES must be a whole number of at least 0",
+      `AMPLIFIER_SETTLE_MINUTES must be a whole number between 0 and ${MAX_SETTLE_MINUTES}`,
+    );
+  });
+
+  it("caps the settle window at the retry budget on amplifier.handleEvent", () => {
+    expect(
+      loadConfig({}, { AMPLIFIER_SETTLE_MINUTES: String(MAX_SETTLE_MINUTES) }).settleMinutes,
+    ).toBe(MAX_SETTLE_MINUTES);
+    expect(() =>
+      loadConfig({}, { AMPLIFIER_SETTLE_MINUTES: String(MAX_SETTLE_MINUTES + 1) }),
+    ).toThrow(
+      `AMPLIFIER_SETTLE_MINUTES must be a whole number between 0 and ${MAX_SETTLE_MINUTES}`,
     );
   });
 
