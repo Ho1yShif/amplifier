@@ -15,7 +15,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check": "pnpm format:check && pnpm typecheck && pnpm test"
   },
   "dependencies": {
     "@render-lab/tasks-core": "0.3.0",
