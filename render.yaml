@@ -1,23 +1,27 @@
-# Blueprint for the amplifier trigger layer: the cron service that starts
-# workflow runs, plus the Key Value instance that records which posts have
-# already been announced. The Workflow service itself is created separately
-# because Blueprints don't support Workflows yet.
+# Blueprint for the amplifier trigger layer: the web service that receives
+# Typefully webhook deliveries and starts workflow runs, plus the Key Value
+# instance that records which posts have already been announced. The Workflow
+# service itself is created separately because Blueprints don't support
+# Workflows yet.
 #
-# Order: create the Workflow service, apply this Blueprint, then copy the
-# amplifier-kv internal connection string into the Workflow service's REDIS_URL.
+# Order: create the Workflow service, apply this Blueprint, copy the
+# amplifier-kv internal connection string into the Workflow service's
+# REDIS_URL, then register the receiver's public URL in Typefully under
+# Settings > API and copy the signing secret back into
+# TYPEFULLY_WEBHOOK_SECRET.
 projects:
   - name: amplifier
     environments:
       - name: Production
         services:
-          - type: cron
-            name: amplifier-cron
+          - type: web
+            name: amplifier-webhook
             runtime: node
             plan: starter
             region: oregon
-            schedule: "*/30 * * * *"
             buildCommand: pnpm install && pnpm build
-            startCommand: node dist/cron-trigger.js
+            startCommand: node dist/webhook-server.js
+            healthCheckPath: /healthz
             autoDeployTrigger: commit
             envVars:
               - fromGroup: amplifier-triggers
@@ -34,8 +38,9 @@ projects:
         envVarGroups:
           - name: amplifier-triggers
             envVars:
-              # The cron service only starts runs. TYPEFULLY_API_KEY,
-              # SLACK_BOT_TOKEN, and REDIS_URL live on the Workflow service.
+              # The receiver only verifies a delivery and starts a run.
+              # TYPEFULLY_API_KEY, SLACK_BOT_TOKEN, and REDIS_URL live on the
+              # Workflow service.
               - key: RENDER_API_KEY
                 sync: false
               # The Workflow service is created by hand, so its slug is not known
@@ -43,13 +48,17 @@ projects:
               # that on the next Blueprint apply.
               - key: WORKFLOW_SLUG
                 sync: false
-              - key: CRON_TASK
-                value: amplifier.checkPosts
-              - key: CRON_INPUT
-                value: "{}"
+              # Typefully shows this when the webhook is registered, so it does
+              # not exist until after the first deploy.
+              - key: TYPEFULLY_WEBHOOK_SECRET
+                sync: false
+              # DISPATCH_TOKEN is deliberately absent. It gates POST /tasks/:task,
+              # which nothing in amplifier uses, and leaving it unset makes that
+              # route answer 401 to everything. Do not add it to make that route
+              # work; it should stay shut.
 
           # Vendor keys for the hand-created Workflow service. No service in this
-          # Blueprint references this group: the cron service only starts runs.
+          # Blueprint references this group: the receiver only starts runs.
           # Attach it to the Workflow service in the dashboard.
           - name: amplifier-workflow
             envVars:
