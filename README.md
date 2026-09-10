@@ -29,15 +29,16 @@ Steps 4 through 7 run once per group.
 A Render cron job runs every 30 minutes and dispatches `amplifier.checkPosts` on the amplifier Workflow service. That task:
 
 1. Calls `typefully.listPublished` for published drafts in the configured social set.
-2. Keeps the drafts published in the last 90 minutes.
-3. Drops the drafts Render Key Value already records as announced.
-4. Groups the rest, when they were published close together on different platforms, into one note.
-5. Asks Claude Sonnet 5, through `llm.complete`, for the one line that opens the note.
-6. Takes a 5-minute lock per draft, posts the note through `amplifier.postNote`, then records each draft as announced for 30 days.
+2. Keeps the drafts published in the last 90 minutes, then drops the ones Render Key Value already records as announced.
+3. Groups the rest, when they were published close together on different platforms, into one note.
+4. Asks Claude Sonnet 5, through `llm.complete`, for the one line that opens the note.
+5. Takes a 5-minute lock per draft.
+6. Posts the note through `amplifier.postNote`.
+7. Records each draft as announced for 30 days.
 
 `amplifier.postNote` wraps the vendor's `postMessageImpl` and adds `unfurl_links: false` and `unfurl_media: false` to the request body, because `@render-lab/tasks-slack` 0.3.0 sends neither and exposes no option for them. The wrapper can go away once the vendor adds an unfurl option.
 
-A note is that one summary line and a link per platform, bulleted only when there are two:
+A note is that one summary line and a link per platform. Two links get bullets; one does not.
 
 ```
 Cursor Origin is now a supported Git provider on Render. Help spread the word
@@ -101,7 +102,7 @@ The stub listens on port 8787. Set `STUB_PORT` to use a different one.
 ## Deployment
 
 1. Create a Workflow service in the Render Dashboard from this repo, with build `pnpm install && pnpm build` and start `node dist/main.js`. Put it in project `amplifier`, environment `Production`, region Oregon, the same as the services in `render.yaml`. The Key Value instance is reachable only over the private network within its own environment, so a Workflow service anywhere else fails to connect. Note the service's slug.
-2. Run `render workflows start ping --input='[{}]'` against the new service to confirm the task registry loaded, before any secret is set.
+2. Run `render workflows start <slug-from-step-1>/ping --input='[]'` to confirm the task registry loaded, before any secret is set. `ping` takes no arguments, so the input array is empty.
 3. Apply `render.yaml` to create the cron job, the Key Value instance, and two env groups: `amplifier-triggers` and `amplifier-workflow`. Set `RENDER_API_KEY`, and set `WORKFLOW_SLUG` to the slug from step 1.
 4. On the Workflow service, link the `amplifier-workflow` env group and set its `ANTHROPIC_API_KEY`. The group holds the vendor keys the Workflow service reads, and it is linked in the Dashboard because Blueprints do not support Workflow services, so `render.yaml` cannot reference it. Then set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, a Slack credential (see below), `DRY_RUN=true`, and `REDIS_URL` (the `amplifier-kv` internal connection string) on the service itself.
 5. Confirm the link took: the Workflow service's environment page lists `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5` from the group. If it does not, the group exists but is not linked, and every note will carry `(Summarization LLM call failed)`.
@@ -155,8 +156,8 @@ manifest.
 | `AMPLIFIER_SUMMARY_MODEL`        | `anthropic/claude-sonnet-5` | —     | The model that writes the lead line. The provider prefix is required. Takes precedence over `tasks-llm`'s own `LLM_MODEL`. |
 
 A numeric variable set to a fraction, to something non-numeric, or to a value outside
-its range fails the run with the variable's name in the error. Leaving one blank or
-unset uses the default.
+its range fails the run with the variable's name in the error. Leaving any variable
+in this table blank or unset uses its default.
 
 Default call to action: "New Render social post! Please like and share when you have a minute"
 

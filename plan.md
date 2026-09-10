@@ -34,7 +34,7 @@ pnpm format:check
 grep -rn "plan.md" .prettierignore scripts/
 ```
 
-- [ ] Task 1 complete
+- [x] Task 1 complete
 
 ### Task 2: Say why the four unread Typefully fields are declared
 
@@ -48,7 +48,7 @@ Keep all four. `test/map.test.ts` sets `x_post_enabled: true` with no publish ti
 
 **Verify:** `pnpm typecheck && pnpm test`
 
-- [ ] Task 2 complete
+- [x] Task 2 complete
 
 ### Task 3: Decide the fate of the `ping` task
 
@@ -62,7 +62,7 @@ Keep it and add one line to the deployment steps: after the Workflow service is 
 
 **Verify:** `pnpm test`, and the README instruction matches a command that exists in `render workflows --help`.
 
-- [ ] Task 3 complete
+- [x] Task 3 complete
 
 ---
 
@@ -92,7 +92,7 @@ It goes in `src/typefully/` because the display order is a property of the platf
 
 **Verify:** `pnpm test`. `test/template.test.ts` already asserts the exact strings `LinkedIn post` and `X post`, so it catches a label change.
 
-- [ ] Task 4 complete
+- [x] Task 4 complete
 
 ### Task 5: One fetch wrapper in postNote
 
@@ -111,7 +111,7 @@ Then pass it as `unfurlOffFetch as WebFetchLike` and `unfurlOffFetch as FetchLik
 
 **Verify:** `pnpm typecheck && pnpm test`. `test/postNote.test.ts` covers both paths.
 
-- [ ] Task 5 complete
+- [x] Task 5 complete
 
 ### Task 6: Collapse the two duplicated shapes in template and checkPosts
 
@@ -137,7 +137,7 @@ Do not restructure the surrounding control flow. The dry-run branch releases the
 
 **Verify:** `pnpm test`. `test/template.test.ts` asserts both the one-link and two-link output.
 
-- [ ] Task 6 complete
+- [x] Task 6 complete
 
 ### Task 7: Shared test fixtures
 
@@ -170,7 +170,7 @@ Keep each test's assertions byte-identical. This task must change no expected va
 
 **Verify:** `pnpm test` reports 127 passing, the same count as the baseline.
 
-- [ ] Task 7 complete
+- [x] Task 7 complete
 
 ---
 
@@ -202,7 +202,7 @@ Write both tests first and watch them fail before making the source edits.
 
 **Verify:** `pnpm test`
 
-- [ ] Task 8 complete
+- [x] Task 8 complete
 
 ---
 
@@ -220,7 +220,7 @@ Write both tests first and watch them fail before making the source edits.
 
 **Verify:** `pnpm typecheck && pnpm test`
 
-- [ ] Task 9 complete
+- [x] Task 9 complete
 
 ### Task 10: One command that runs every check
 
@@ -239,7 +239,7 @@ Put it in the Local development section of the README as the command to run befo
 
 **Verify:** `pnpm check` passes.
 
-- [ ] Task 10 complete
+- [x] Task 10 complete
 
 ### Task 11: Import order in checkPosts.ts
 
@@ -253,7 +253,7 @@ Do not add an import-sorting plugin as part of this task. That is a separate dec
 
 **Verify:** `pnpm check`
 
-- [ ] Task 11 complete
+- [x] Task 11 complete
 
 ---
 
@@ -303,7 +303,7 @@ Check the box-drawing characters render in a fixed-width font before committing.
 
 **Verify:** Read the rendered README on GitHub or in a Markdown preview and confirm the diagram lines up.
 
-- [ ] Task 12 complete
+- [x] Task 12 complete
 
 ### Task 13: Correct the Slack task name
 
@@ -317,7 +317,7 @@ Fix both names and add two sentences on the wrapper. A reader looking for `slack
 
 **Verify:** `grep -n "slack.postMessage" README.md` returns nothing.
 
-- [ ] Task 13 complete
+- [x] Task 13 complete
 
 ### Task 14: Rewrite the Slack credentials opening
 
@@ -331,7 +331,7 @@ While in this section, check the rest of it against `src/slack/postNote.ts` and 
 
 **Verify:** `pnpm format:check`
 
-- [ ] Task 14 complete
+- [x] Task 14 complete
 
 ### Task 15: Complete the configuration table
 
@@ -349,7 +349,7 @@ Check every default in the table against `src/config.ts` while editing. The curr
 
 **Verify:** Each row's default matches the `fallback` value in `loadConfig`, and each variable name appears in `src/`, `render.yaml`, or `scripts/`.
 
-- [ ] Task 15 complete
+- [x] Task 15 complete
 
 ### Task 16: Check the rest of the README against the code
 
@@ -369,7 +369,7 @@ Report anything that cannot be checked without deploying, rather than leaving it
 
 **Verify:** `pnpm check`, plus the local end-to-end run above.
 
-- [ ] Task 16 complete
+- [x] Task 16 complete
 
 ---
 
@@ -382,4 +382,4 @@ git diff --stat
 
 Test count must still be at least 127, with the four new cases from Task 8 on top. No task in this plan may change the note's rendered output except Task 8, and Task 8 only changes it when `AMPLIFIER_CALL_TO_ACTION` is blank.
 
-- [ ] All tasks complete
+- [x] All tasks complete
