@@ -129,10 +129,16 @@ export async function checkPostsImpl(
     }
     const { claims } = outcome;
 
+    // Only the event's draft went through the settle check, so only its note
+    // names the platforms the deadline dropped.
+    const dropped =
+      input.draftId !== undefined && group.draftIds.includes(input.draftId) ? droppedPlatforms : [];
+
     const message = renderNote(group, {
       ...(config.slackChannel ? { channel: config.slackChannel } : {}),
       callToAction: config.callToAction,
       ...(isSummary(summary) ? { summary: summary.line } : { summaryError: summary.error }),
+      ...(dropped.length > 0 ? { droppedPlatforms: dropped } : {}),
     });
     const platforms = notePlatforms(group);
 

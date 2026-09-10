@@ -173,6 +173,27 @@ describe("renderNote", () => {
     expect(md).toContain("• <https://x.com/render/status/1|X post>");
   });
 
+  it("names one platform the settle deadline dropped", () => {
+    const md =
+      renderNote(crossPost, { summary: "Cold starts are 40% faster.", droppedPlatforms: ["x"] })
+        .markdown ?? "";
+    expect(md).toContain("_X had not published yet, so there is no link for it._");
+  });
+
+  it("names both platforms in display order when the deadline dropped both", () => {
+    const md =
+      renderNote(crossPost, {
+        summary: "Cold starts are 40% faster.",
+        droppedPlatforms: ["x", "linkedin"],
+      }).markdown ?? "";
+    expect(md).toContain("_LinkedIn and X had not published yet, so there are no links for them._");
+  });
+
+  it("adds no dropped line when nothing was dropped", () => {
+    const md = renderNote(crossPost, { summary: "Cold starts are 40% faster." }).markdown ?? "";
+    expect(md).not.toContain("had not published yet");
+  });
+
   it("sets the notification fallback to the summary and no URL", () => {
     const note = renderNote(crossPost, { summary: "Cold starts are 40% faster." });
     expect(note.text).toBe("Cold starts are 40% faster.");

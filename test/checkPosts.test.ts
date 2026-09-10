@@ -308,6 +308,17 @@ describe("checkPostsImpl", () => {
       expect(result.notified).toBe(1);
     });
 
+    it("names the dropped platform in the note", async () => {
+      const { ctx, calls } = runCtx({
+        "typefully.listPublished": () => ({ posts: pendingPosts() }),
+      });
+
+      await check(ctx, { ...PENDING, now: "2026-09-04T16:06:00Z" });
+
+      const md = calls.find((c) => c.name === "amplifier.postNote")?.input.markdown ?? "";
+      expect(md).toContain("X had not published yet");
+    });
+
     it("posts a complete draft on the first attempt", async () => {
       const { ctx } = runCtx({
         "typefully.listPublished": () => ({

@@ -1,6 +1,6 @@
 import type { PostMessageInput } from "@render-lab/tasks-slack";
 import { compareTime } from "../time.js";
-import { PLATFORM_ORDER, platformLabel } from "../typefully/platforms.js";
+import { PLATFORM_NAMES, PLATFORM_ORDER, platformLabel } from "../typefully/platforms.js";
 import type { Platform, PlatformLink } from "../typefully/types.js";
 import type { PostGroup } from "./group.js";
 
@@ -16,6 +16,8 @@ export interface RenderNoteOptions {
   summary?: string;
   /** Why there is no summary, shown under the fallback lead line. */
   summaryError?: string;
+  /** Platforms the note has no link for because the settle deadline passed. */
+  droppedPlatforms?: Platform[];
 }
 
 /** One link per platform in display order, keeping the earliest of any duplicates. */
@@ -36,6 +38,20 @@ function orderedLinks(group: PostGroup): PlatformLink[] {
 /** Platforms this note covers, in display order. */
 export function notePlatforms(group: PostGroup): Platform[] {
   return orderedLinks(group).map((l) => l.platform);
+}
+
+/**
+ * The line naming platforms the note has no link for.
+ *
+ * A dropped platform never reaches `orderedLinks`, so without this line the
+ * note reads as a complete announcement of a partial cross-post and nobody in
+ * the channel learns a link is missing.
+ */
+function droppedLine(dropped: Platform[]): string {
+  if (dropped.length === 0) return "";
+  const names = PLATFORM_ORDER.filter((p) => dropped.includes(p)).map((p) => PLATFORM_NAMES[p]);
+  const missing = names.length > 1 ? "there are no links for them" : "there is no link for it";
+  return `_${names.join(" and ")} had not published yet, so ${missing}._`;
 }
 
 function linkMrkdwn(link: PlatformLink, shareUrl: string | undefined): string {
@@ -82,6 +98,7 @@ export function renderNote(group: PostGroup, opts: RenderNoteOptions = {}): Post
     blocks.push(quotes);
   }
   blocks.push(linkList);
+  blocks.push(droppedLine(opts.droppedPlatforms ?? []));
 
   return {
     text: lead,

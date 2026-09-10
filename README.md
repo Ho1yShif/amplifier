@@ -42,7 +42,7 @@ Typefully posts to the `amplifier-webhook` service when a draft publishes. The r
 
 1. Calls `typefully.listPublished` for published drafts in the configured social set.
 2. Keeps the drafts published in the last 90 minutes, then drops the ones Render Key Value already records as announced.
-3. Throws while the event's draft is enabled for a platform that has not reported a permalink, so a retry re-reads Typefully a minute later. Past the 10-minute settle deadline it announces the draft with whatever links exist.
+3. Throws while the event's draft is enabled for a platform that has not reported a permalink, so a retry re-reads Typefully a minute later. Past the 10-minute settle deadline it announces the draft with whatever links exist, and the note names the platform it has no link for.
 4. Groups the rest, when they were published close together on different platforms, into one note.
 5. Asks Claude Sonnet 5, through `llm.complete`, for the one line that opens the note.
 6. Takes a 5-minute lock per draft.
