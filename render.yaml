@@ -4,11 +4,11 @@
 # service itself is created separately because Blueprints don't support
 # Workflows yet.
 #
-# Order: create the Workflow service, apply this Blueprint, copy the
-# amplifier-kv internal connection string into the Workflow service's
-# REDIS_URL, then register the receiver's public URL in Typefully under
-# Settings > API and copy the signing secret back into
-# TYPEFULLY_WEBHOOK_SECRET.
+# Order: create the Workflow service, create the two env groups by hand with
+# their values, apply this Blueprint, copy the amplifier-kv internal connection
+# string into the Workflow service's REDIS_URL, then register the receiver's
+# public URL in Typefully under Settings > API and copy the signing secret back
+# into TYPEFULLY_WEBHOOK_SECRET.
 projects:
   - name: amplifier
     environments:
@@ -37,33 +37,22 @@ projects:
             ipAllowList: []
 
         envVarGroups:
+          # Both groups are created by hand, with their values, before this
+          # Blueprint is applied. `sync: false` is ignored inside an env var
+          # group, so a group cannot prompt for a value and cannot carry a secret
+          # from this file. README, Deployment step 4, lists the keys to add.
+          #
+          # DISPATCH_TOKEN is deliberately absent. It gates POST /tasks/:task,
+          # which nothing in amplifier uses, and leaving it unset makes that route
+          # answer 401 to everything. Do not add it to make that route work; it
+          # should stay shut.
           - name: amplifier-triggers
-            envVars:
-              # The receiver only verifies a delivery and starts a run.
-              # TYPEFULLY_API_KEY, SLACK_BOT_TOKEN, and REDIS_URL live on the
-              # Workflow service.
-              - key: RENDER_API_KEY
-                sync: false
-              # The Workflow service is created by hand, so its slug is not known
-              # here. Enter it in the dashboard; a literal value would overwrite
-              # that on the next Blueprint apply.
-              - key: WORKFLOW_SLUG
-                sync: false
-              # Typefully shows this when the webhook is registered, so it does
-              # not exist until after the first deploy.
-              - key: TYPEFULLY_WEBHOOK_SECRET
-                sync: false
-              # DISPATCH_TOKEN is deliberately absent. It gates POST /tasks/:task,
-              # which nothing in amplifier uses, and leaving it unset makes that
-              # route answer 401 to everything. Do not add it to make that route
-              # work; it should stay shut.
+            envVars: []
 
           # Vendor keys for the hand-created Workflow service. No service in this
           # Blueprint references this group: the receiver only starts runs.
           # Attach it to the Workflow service in the dashboard.
           - name: amplifier-workflow
             envVars:
-              - key: ANTHROPIC_API_KEY
-                sync: false
               - key: AMPLIFIER_SUMMARY_MODEL
                 value: anthropic/claude-sonnet-5

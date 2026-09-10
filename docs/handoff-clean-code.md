@@ -81,7 +81,7 @@ https://render.com/deploy?repo=https://github.com/Ho1yShif/amplifier
 ```
 
 It redirects to `dashboard.render.com/blueprint/new`. The repo is private, so the link works only
-for a workspace that already has GitHub access to it, which is deployment step 1.
+for a workspace that already has GitHub access to it, which the Deployment section calls for first.
 
 ## Local environment
 
