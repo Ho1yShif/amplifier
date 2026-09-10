@@ -28,6 +28,11 @@ const event = JSON.parse(
 );
 const draftId = process.argv[2];
 if (draftId !== undefined) {
+  // A non-numeric argument would serialize as null and send an event with no
+  // draft id, which looks like a rescan rather than a mistake.
+  if (!/^\d+$/.test(draftId)) {
+    throw new Error(`The draft id has to be a whole number; got ${JSON.stringify(draftId)}.`);
+  }
   event.data.id = Number(draftId);
 }
 
