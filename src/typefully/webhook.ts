@@ -9,7 +9,7 @@ const TIMESTAMP_HEADER = "x-typefully-timestamp";
 const SIGNATURE_HEADER = "x-typefully-signature";
 
 /** Constant-time compare of two strings of any length. */
-function equals(a: string, b: string): boolean {
+function timingSafeEquals(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
   if (left.length !== right.length) return false;
@@ -70,7 +70,7 @@ export function typefullyWebhook(
       if (timestamp === undefined || signature === undefined) return false;
 
       const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
-      return equals(`sha256=${digest}`, signature);
+      return timingSafeEquals(`sha256=${digest}`, signature);
     },
 
     /**
