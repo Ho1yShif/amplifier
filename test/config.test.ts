@@ -9,6 +9,7 @@ describe("loadConfig", () => {
       limit: 25,
       lookbackMinutes: 90,
       groupWindowMinutes: 10,
+      settleMinutes: 10,
       seenTtlSeconds: 30 * 86_400,
       callToAction: DEFAULT_CALL_TO_ACTION,
       summaryModel: DEFAULT_SUMMARY_MODEL,
@@ -23,6 +24,7 @@ describe("loadConfig", () => {
         TYPEFULLY_SOCIAL_SET_ID: "set_1",
         AMPLIFIER_LOOKBACK_MINUTES: "30",
         AMPLIFIER_GROUP_WINDOW_MINUTES: "5",
+        AMPLIFIER_SETTLE_MINUTES: "3",
         AMPLIFIER_SEEN_TTL_DAYS: "7",
         AMPLIFIER_LIMIT: "50",
         AMPLIFIER_CALL_TO_ACTION: "Boost it.",
@@ -35,6 +37,7 @@ describe("loadConfig", () => {
       limit: 50,
       lookbackMinutes: 30,
       groupWindowMinutes: 5,
+      settleMinutes: 3,
       seenTtlSeconds: 7 * 86_400,
       slackChannel: "#social",
       callToAction: "Boost it.",
@@ -98,6 +101,24 @@ describe("loadConfig", () => {
 
   it("accepts a group window of 0, which turns grouping off", () => {
     expect(loadConfig({}, { AMPLIFIER_GROUP_WINDOW_MINUTES: "0" }).groupWindowMinutes).toBe(0);
+  });
+
+  it("defaults the settle window to 10 minutes", () => {
+    expect(loadConfig({}, {}).settleMinutes).toBe(10);
+  });
+
+  it("reads the settle window from the env", () => {
+    expect(loadConfig({}, { AMPLIFIER_SETTLE_MINUTES: "0" }).settleMinutes).toBe(0);
+  });
+
+  it("falls back to the default settle window on a blank variable", () => {
+    expect(loadConfig({}, { AMPLIFIER_SETTLE_MINUTES: "  " }).settleMinutes).toBe(10);
+  });
+
+  it("rejects a negative settle window", () => {
+    expect(() => loadConfig({}, { AMPLIFIER_SETTLE_MINUTES: "-1" })).toThrow(
+      "AMPLIFIER_SETTLE_MINUTES must be a whole number of at least 0",
+    );
   });
 
   it("validates a per-run override the same way", () => {

@@ -7,6 +7,7 @@ export interface CheckPostsInput {
   limit?: number;
   lookbackMinutes?: number;
   groupWindowMinutes?: number;
+  settleMinutes?: number;
   seenTtlDays?: number;
   slackChannel?: string;
   callToAction?: string;
@@ -15,6 +16,10 @@ export interface CheckPostsInput {
   dryRun?: boolean;
   /** ISO 8601 "now", for tests and for replaying a past window. */
   now?: string;
+  /** ISO 8601 time the webhook event was received. Absent means do not settle. */
+  eventAt?: string;
+  /** Typefully draft the event was about. Absent means do not settle. */
+  draftId?: string;
 }
 
 export interface AmplifierConfig {
@@ -22,6 +27,7 @@ export interface AmplifierConfig {
   limit: number;
   lookbackMinutes: number;
   groupWindowMinutes: number;
+  settleMinutes: number;
   seenTtlSeconds: number;
   slackChannel?: string;
   callToAction: string;
@@ -51,8 +57,9 @@ interface Bounds {
  * DRY_RUN defaults to true: the first deploy logs the note it would post and
  * writes nothing to Slack unless DRY_RUN is explicitly "false".
  *
- * The lookback default of 90 minutes is wider than the 30-minute cron
- * schedule, so one skipped run still catches up. The announced marker in Key
+ * The lookback default of 90 minutes covers the gap between the webhook event
+ * and the run, plus any retry backoff, and it is wide enough that a manual
+ * re-run catches a post whose delivery was dropped. The announced marker in Key
  * Value keeps the overlapping runs from re-posting what is already out.
  */
 export function loadConfig(
@@ -90,6 +97,14 @@ export function loadConfig(
       "AMPLIFIER_GROUP_WINDOW_MINUTES",
       input.groupWindowMinutes,
       env.AMPLIFIER_GROUP_WINDOW_MINUTES,
+      { fallback: 10, min: 0 },
+    ),
+    // A settle window of 0 announces whatever links exist on the first attempt.
+    // Set it to 0 to turn settling off.
+    settleMinutes: whole(
+      "AMPLIFIER_SETTLE_MINUTES",
+      input.settleMinutes,
+      env.AMPLIFIER_SETTLE_MINUTES,
       { fallback: 10, min: 0 },
     ),
     seenTtlSeconds: seenTtlDays * 86_400,
