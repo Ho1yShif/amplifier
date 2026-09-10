@@ -62,10 +62,8 @@ export function renderNote(group: PostGroup, opts: RenderNoteOptions = {}): Post
   const links = orderedLinks(group);
   // Slack mrkdwn has no list syntax, so the bullet is a literal character. One
   // link needs no list, so it goes in on its own.
-  const linkList =
-    links.length > 1
-      ? links.map((l) => `• ${linkMrkdwn(l, group.shareUrl)}`).join("\n")
-      : links.map((l) => linkMrkdwn(l, group.shareUrl)).join("");
+  const bullet = links.length > 1 ? "• " : "";
+  const linkList = links.map((l) => `${bullet}${linkMrkdwn(l, group.shareUrl)}`).join("\n");
   const summary = opts.summary?.trim();
   const lead = summary || (opts.callToAction ?? DEFAULT_CALL_TO_ACTION);
 

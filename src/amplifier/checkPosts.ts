@@ -108,36 +108,28 @@ export async function checkPostsImpl(
     });
     const platforms = notePlatforms(group);
 
+    let delivered = false;
     if (config.dryRun) {
       console.log(`[dry run] would post:\n${message.markdown ?? message.text}`);
-      await releaseGroup(ctx, claims);
-      notes.push({
-        draftIds: group.draftIds,
-        platforms,
-        delivered: false,
-        summarized: isSummary(summary),
-      });
-      continue;
-    }
-
-    let delivered = false;
-    try {
-      ({ delivered } = await ctx.run(postNote, message));
-      if (delivered) {
-        await markAnnounced(ctx, group.draftIds, config.seenTtlSeconds);
+    } else {
+      try {
+        ({ delivered } = await ctx.run(postNote, message));
+        if (delivered) {
+          await markAnnounced(ctx, group.draftIds, config.seenTtlSeconds);
+        }
+      } catch (err) {
+        await releaseGroup(ctx, claims);
+        throw err;
       }
-    } catch (err) {
-      await releaseGroup(ctx, claims);
-      throw err;
-    }
 
-    if (!delivered) {
-      // Slack fell back to the console because no bot token and no webhook URL
-      // is set. Nothing reached the channel, so leave the drafts unannounced.
-      console.error(
-        `[amplifier] Slack did not accept the note for ${group.draftIds.join(", ")}. Set ` +
-          `SLACK_BOT_TOKEN or SLACK_WEBHOOK_URL. A later run will retry.`,
-      );
+      if (!delivered) {
+        // Slack fell back to the console because no bot token and no webhook URL
+        // is set. Nothing reached the channel, so leave the drafts unannounced.
+        console.error(
+          `[amplifier] Slack did not accept the note for ${group.draftIds.join(", ")}. Set ` +
+            `SLACK_BOT_TOKEN or SLACK_WEBHOOK_URL. A later run will retry.`,
+        );
+      }
     }
     await releaseGroup(ctx, claims);
     notes.push({
