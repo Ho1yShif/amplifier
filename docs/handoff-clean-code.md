@@ -1,10 +1,11 @@
 # Handoff: clean-code pass
 
-A review of the webhook trigger work refactored three things and left four decisions open. Nothing
-is deployed. `pnpm check` passes: 180 tests across 16 files, typecheck and format clean.
+A review of the webhook trigger work refactored three things and raised four decisions, all four now
+settled. Nothing is deployed. `pnpm check` passes: 189 tests across 16 files, typecheck and format
+clean.
 
 `docs/handoff-webhook-trigger.md` covers what the webhook trigger does and how to deploy it. This
-doc covers what the review changed and what still needs a decision.
+doc covers what the review changed and what was decided.
 
 ## What the refactor changed
 
@@ -34,38 +35,38 @@ Committed alongside the refactor, and not part of the review:
 - `render.yaml` corrects the `amplifier-kv` comment. The Workflow service has to share the
   workspace and the region, not the project and the environment.
 
-## Decisions to make
+## Decisions made
 
-### AMPLIFIER_SETTLE_MINUTES has no upper bound
+### AMPLIFIER_SETTLE_MINUTES is capped at the retry budget
 
-`loadConfig` validates `min: 0` and no maximum, while the retry policy on `amplifier.handleEvent`
-gives a 15-minute budget across four retries at 1m, 2m, 4m, and 8m. Set the variable to 30 and every
-event for an in-flight draft exhausts its retries, so the post gets no note and nothing reports it.
-`whole()` already takes a `max`, so the fix is `max: 15` at `src/config.ts:104`. I left it out
-because it turns a value that works today into a startup error.
+`loadConfig` now rejects a settle window wider than the retry budget on `amplifier.handleEvent`.
+Set the variable to 30 and every event for an in-flight draft used to exhaust its retries, so the
+post got no note and nothing reported it. `src/amplifier/retry.ts` holds
+`HANDLE_EVENT_RETRY` and computes `MAX_SETTLE_MINUTES` from it, so changing the retry policy moves
+the cap with it. A value that works today is now a startup error.
 
-### A dropped platform only reaches the logs
+### The note names a dropped platform
 
-When the settle deadline passes, `checkPosts.ts:97` warns, `droppedPlatforms` goes into the result,
-and the note reaches Slack without the X or LinkedIn link. `markAnnounced` then covers the draft, so
-the missing link is never announced later. Nobody in `#amplify` learns the note is incomplete.
-Naming the dropped platform in the note text would tell them, and that changes the note.
+`renderNote` takes `droppedPlatforms` and adds a line like `_X had not published yet, so there is no
+link for it._` under the links. `checkPosts` passes the settle result to the group that holds the
+event's draft, and only that group, because no other draft went through the settle check. Without
+the line, nobody in `#amplify` learns the note is missing a link.
 
-### The signature has no replay window
+### The signature has a 15-minute replay window
 
-`verify` folds the timestamp into the HMAC but never checks its age, so a captured delivery stays
-valid forever. `docs/typefully-webhook.md` records this as deliberate, and the reasoning holds: a
-replay re-scans the same window, the seen markers make it announce nothing, and rejecting on clock
-skew would drop a real delivery. Stripe and Slack both reject a timestamp older than a few minutes.
-A tolerance of 15 minutes would cover skew and still bound the replay.
+`verify` rejects a timestamp more than 15 minutes from the receiver's clock, on either side. Stripe
+and Slack both use 5 minutes; the wider window covers Typefully's hour-long delivery retries, since
+whether it re-signs each attempt is unconfirmed. The check runs after the HMAC compare, so only a
+delivery signed with the secret can write the rejection log, and the log carries the header value
+and the measured skew. No delivery has been captured yet, so a timestamp unit that differs from the
+OpenAPI document will show up there.
 
-### Access control on the receiver
+### Access control on the receiver is unchanged
 
-The receiver holds a `RENDER_API_KEY` that can start workflow runs, and `POST /webhooks/typefully`
-is gated only by the Typefully signature. `DISPATCH_TOKEN` is unset on purpose, which shuts
-`POST /tasks/:task`. That is the right shape, and it makes the signing secret the single control, so
-confirming the header names against the first real delivery matters as much as the webhook handoff
-says.
+The Typefully signature stays the single control on `POST /webhooks/typefully`, and `DISPATCH_TOKEN`
+stays unset so `POST /tasks/:task` answers 401 to everything. Signature-only gating is the standard
+shape for a webhook receiver. Confirm the header names against the first real delivery, which the
+webhook handoff already calls for.
 
 ## Still not deployed
 
