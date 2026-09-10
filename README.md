@@ -8,7 +8,7 @@ It reads published drafts from Typefully, which is where the Render Twitter and 
 
 The button applies `render.yaml`, which covers the webhook receiver, the Key Value instance,
 and the env groups. It does not create the Workflow service, because Blueprints do not support
-Workflows yet. Read [Deployment](#deployment) first; the button is step 4.
+Workflows yet. Read [Deployment](#deployment) first; the button is step 5.
 
 ## How it works
 
@@ -120,28 +120,35 @@ Blueprint and giving a workspace access to a private repo both happen in the Ren
 neither has an API or CLI path. Give the workspace that will own the project access to this repo
 first, under Settings > GitHub, because Render cannot clone a private repo until then.
 
-For the Render team, the workspace is Render-DX and steps 1 and 2 are done: workflow `amplifier`,
+For the Render team, the workspace is Render-DX and steps 2 and 3 are done: workflow `amplifier`,
 region Oregon, built from `main`.
 
-1. Create the Workflow service, following [Creating the Workflow service](#creating-the-workflow-service) below. Note the slug it prints.
-2. Run `render workflows start <slug>/ping --input='[]'` to confirm the task registry loaded, before any secret is set. `ping` takes no arguments, so the input array is empty, and it returns `pong`. If the task list is empty, the build shipped but `dist/main.js` registered nothing, and the deploy logs say why.
-3. Create the two env groups in the Dashboard, under Env Groups, and add the keys below. Do this before applying the Blueprint. `sync: false` is ignored inside an env var group, so the apply never prompts for these, and a receiver whose `RENDER_API_KEY` is empty exits at startup with `RenderError: API token is required`.
+1. Create the Slack app and copy a credential, following [Slack credentials](#slack-credentials) below. Nothing in Render has to exist first, and step 4 needs the credential.
+2. Create the Workflow service, following [Creating the Workflow service](#creating-the-workflow-service) below. Note the slug it prints.
+3. Run `render workflows start <slug>/ping --input='[]'` to confirm the task registry loaded, before any secret is set. `ping` takes no arguments, so the input array is empty, and it returns `pong`. If the task list is empty, the build shipped but `dist/main.js` registered nothing, and the deploy logs say why.
+4. Create the two env groups in the Dashboard, under Env Groups, and add the keys below. Do this before applying the Blueprint. `sync: false` is ignored inside an env var group, so the apply never prompts for these, and a receiver whose `RENDER_API_KEY` is empty exits at startup with `RenderError: API token is required`.
 
-   | Group                | Key                 | Value                                                  |
-   | -------------------- | ------------------- | ------------------------------------------------------ |
-   | `amplifier-triggers` | `RENDER_API_KEY`    | A key for the workspace that owns the Workflow service |
-   | `amplifier-triggers` | `WORKFLOW_SLUG`     | The slug from step 1                                   |
-   | `amplifier-workflow` | `ANTHROPIC_API_KEY` | An Anthropic API key                                   |
+   | Group                | Key                       | Value                                                  |
+   | -------------------- | ------------------------- | ------------------------------------------------------ |
+   | `amplifier-triggers` | `RENDER_API_KEY`          | A key for the workspace that owns the Workflow service |
+   | `amplifier-triggers` | `WORKFLOW_SLUG`           | The slug from step 2                                   |
+   | `amplifier-workflow` | `ANTHROPIC_API_KEY`       | An Anthropic API key                                   |
+   | `amplifier-workflow` | `TYPEFULLY_API_KEY`       | Typefully Settings > Integrations                      |
+   | `amplifier-workflow` | `TYPEFULLY_SOCIAL_SET_ID` | `GET /v2/social-sets` lists them                       |
+   | `amplifier-workflow` | The Slack credential      | See below                                              |
 
-   `TYPEFULLY_WEBHOOK_SECRET` belongs in `amplifier-triggers` too, but Typefully does not show it until step 8, so leave it out for now. Leave `AMPLIFIER_SUMMARY_MODEL` out as well; `render.yaml` gives it a literal value and the apply adds it to `amplifier-workflow`. Nothing here can use `generateValue`; every value is one you paste in.
+   For Slack, with a bot token add `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`. With an incoming webhook add `SLACK_WEBHOOK_URL` alone, because the webhook is locked to one channel and `SLACK_CHANNEL` is ignored.
 
-4. Apply `render.yaml`, with the Deploy to Render button above or from the Dashboard, to create the `amplifier-webhook` service and the Key Value instance, and to link `amplifier-triggers` to the receiver. The apply asks for no values, because step 3 set them all.
-5. Confirm `amplifier-kv` landed in region Oregon. `render.yaml` names Oregon, so it should. The Workflow service reaches it over the private network as long as both are in Oregon in the same workspace; the project and the environment do not have to match.
-6. On the Workflow service, link the `amplifier-workflow` env group. The group holds the vendor keys the Workflow service reads, and it is linked in the Dashboard because Blueprints do not support Workflow services, so `render.yaml` cannot reference it. Then set `TYPEFULLY_API_KEY`, `TYPEFULLY_SOCIAL_SET_ID`, a Slack credential (see below), `DRY_RUN=true`, and `REDIS_URL` (the `amplifier-kv` internal connection string) on the service itself.
-7. Confirm the link took: the Workflow service's environment page lists `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5` from the group. If it does not, the group exists but is not linked, and every note will carry `(Summarization LLM call failed)`.
-8. Register the receiver in Typefully. Copy the `amplifier-webhook` service's `onrender.com` URL, append `/webhooks/typefully`, and add that URL under Settings > API, subscribed to `draft.published`. Typefully then shows a signing secret; copy it into `TYPEFULLY_WEBHOOK_SECRET` in the `amplifier-triggers` env group. The secret does not exist until the webhook is registered, so this order matters.
-9. Leave `DRY_RUN=true` for a couple of published posts and read the Workflow logs.
-10. Set `DRY_RUN=false`.
+   `TYPEFULLY_WEBHOOK_SECRET` belongs in `amplifier-triggers` too, but Typefully does not show it until step 10, so leave it out for now. Leave `AMPLIFIER_SUMMARY_MODEL` out as well; `render.yaml` gives it a literal value and the apply adds it to `amplifier-workflow`. `REDIS_URL` comes later, in step 8, because `amplifier-kv` does not exist yet. Nothing here can use `generateValue`; every value is one you paste in.
+
+5. Apply `render.yaml`, with the Deploy to Render button above or from the Dashboard, to create the `amplifier-webhook` service and the Key Value instance, and to link `amplifier-triggers` to the receiver. The apply asks for no values, because step 4 set them all.
+6. Confirm `amplifier-kv` landed in region Oregon. `render.yaml` names Oregon, so it should. The Workflow service reaches it over the private network as long as both are in Oregon in the same workspace; the project and the environment do not have to match.
+7. On the Workflow service, link the `amplifier-workflow` env group. The group holds every variable the Workflow service reads, and it is linked in the Dashboard because Blueprints do not support Workflow services, so `render.yaml` cannot reference it.
+8. Add `REDIS_URL` to `amplifier-workflow`, set to the `amplifier-kv` internal connection string from its Dashboard page.
+9. Confirm the link took: the Workflow service's environment page lists `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5` from the group. If it does not, the group exists but is not linked, and every note will carry `(Summarization LLM call failed)`.
+10. Register the receiver in Typefully, following [Registering the Typefully webhook](#registering-the-typefully-webhook) below.
+11. Leave `DRY_RUN` unset for a couple of published posts and read the Workflow logs to ensure everything is working as intended.
+12. Add `DRY_RUN=false` to `amplifier-workflow`.
 
 ### Creating the Workflow service
 
@@ -187,9 +194,16 @@ one workspace, so a Workflow service in any other region cannot reach the Key Va
 the service out of a network-isolated environment as well, because a Workflow service in one cannot
 reach anything over that environment's private network.
 
-Set the environment variables from step 6 after the service exists, or pass them to
-`render workflows create` with `--env-var KEY=VALUE` and `--env-file`. `REDIS_URL` cannot be set
-this way on a first pass, because `amplifier-kv` does not exist until step 4.
+The Workflow service reads its variables from the `amplifier-workflow` env group, linked in step 7,
+so `render workflows create` needs no `--env-var` or `--env-file` flags.
+
+### Registering the Typefully webhook
+
+1. In the Render Dashboard, copy the `amplifier-webhook` service's `onrender.com` URL and append `/webhooks/typefully`.
+2. Open <https://typefully.com/?settings=api> and click **Add webhook**.
+3. Paste the URL, select the `draft.published` event, and save.
+4. Typefully now shows a signing secret. Add a new key to the `amplifier-triggers` env group, named `TYPEFULLY_WEBHOOK_SECRET`, and paste the secret as its value. The key does not exist yet, because Typefully creates the secret only when you save the webhook, so deployment step 4 could not add it.
+5. Redeploy `amplifier-webhook`. It reads `TYPEFULLY_WEBHOOK_SECRET` at startup, so it rejects every delivery until it restarts with the new value.
 
 ### Manual re-run
 
@@ -217,7 +231,8 @@ below works. To change the app later, edit the file and paste it into **App Mani
 on the app's settings page.
 
 Slack should install the app to the workspace for you. Slack asks which channel the webhook posts to,
-and both credentials show up on the app's pages afterwards. Set one of these two:
+and both credentials show up on the app's pages afterwards. Copy one of these two, and add it to the
+`amplifier-workflow` env group in deployment step 4:
 
 - **`SLACK_WEBHOOK_URL`** is the URL on the app's **Incoming Webhooks** page. It is
   locked to the channel you picked during install, so `SLACK_CHANNEL` is ignored and
@@ -260,7 +275,7 @@ no default.
 
 Default call to action: "New Render social post! Please like and share when you have a minute"
 
-`ANTHROPIC_API_KEY` and `AMPLIFIER_SUMMARY_MODEL` arrive through the `amplifier-workflow` env group. `AMPLIFIER_SUMMARY_MODEL` has a literal value in `render.yaml`, so a Blueprint apply resets a Dashboard override. `ANTHROPIC_API_KEY` is added to the group by hand, in step 3, because `render.yaml` cannot carry a secret into a group.
+Every variable above reaches the Workflow service through the `amplifier-workflow` env group, so set them there rather than on the service. All of them are added to the group by hand, in step 4, except `AMPLIFIER_SUMMARY_MODEL`: it has a literal value in `render.yaml`, so a Blueprint apply resets a Dashboard override.
 
 ### Webhook receiver
 

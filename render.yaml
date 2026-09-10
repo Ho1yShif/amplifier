@@ -4,11 +4,11 @@
 # service itself is created separately because Blueprints don't support
 # Workflows yet.
 #
-# Order: create the Workflow service, create the two env groups by hand with
-# their values, apply this Blueprint, copy the amplifier-kv internal connection
-# string into the Workflow service's REDIS_URL, then register the receiver's
-# public URL in Typefully under Settings > API and copy the signing secret back
-# into TYPEFULLY_WEBHOOK_SECRET.
+# Order: create the Slack app, create the Workflow service, create the two env
+# groups by hand with their values, apply this Blueprint, link amplifier-workflow
+# to the Workflow service, add the amplifier-kv internal connection string to that
+# group as REDIS_URL, then register the receiver's public URL in Typefully under
+# Settings > API and copy the signing secret back into TYPEFULLY_WEBHOOK_SECRET.
 projects:
   - name: amplifier
     environments:
@@ -49,9 +49,10 @@ projects:
           - name: amplifier-triggers
             envVars: []
 
-          # Vendor keys for the hand-created Workflow service. No service in this
-          # Blueprint references this group: the receiver only starts runs.
-          # Attach it to the Workflow service in the dashboard.
+          # Every variable the hand-created Workflow service reads. No service in
+          # this Blueprint references this group: the receiver only starts runs.
+          # Attach it to the Workflow service in the dashboard. A Blueprint sync
+          # leaves the keys added there by hand alone.
           - name: amplifier-workflow
             envVars:
               - key: AMPLIFIER_SUMMARY_MODEL
