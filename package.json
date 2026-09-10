@@ -12,6 +12,7 @@
     "trigger:serve": "node dist/webhook-server.js",
     "stub": "tsx scripts/typefully-stub.ts",
     "local:run": "tsx scripts/local-run.ts",
+    "webhook:post": "tsx scripts/webhook-post.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
