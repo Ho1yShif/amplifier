@@ -30,6 +30,20 @@ export interface AmplifierConfig {
 }
 
 /**
+ * Most drafts one run may pull, and so the widest burst of concurrent Key Value
+ * subtasks a run can open. `announcedDraftIds` and `markAnnounced` dispatch one
+ * `ctx.run` per draft at once, so the limit and the burst are the same number.
+ */
+export const MAX_LIMIT = 100;
+
+interface Bounds {
+  /** Used when the override is absent and the environment variable is unset or blank. */
+  fallback: number;
+  min: number;
+  max?: number;
+}
+
+/**
  * Resolve run config from per-run overrides, then environment, then defaults.
  *
  * DRY_RUN defaults to true: the first deploy logs the note it would post and
@@ -82,20 +96,6 @@ export function loadConfig(
     summaryModel: text(input.summaryModel, env.AMPLIFIER_SUMMARY_MODEL, DEFAULT_SUMMARY_MODEL),
     dryRun: input.dryRun ?? env.DRY_RUN !== "false",
   };
-}
-
-/**
- * Most drafts one run may pull, and so the widest burst of concurrent Key Value
- * subtasks a run can open. `announcedDraftIds` and `markAnnounced` dispatch one
- * `ctx.run` per draft at once, so the limit and the burst are the same number.
- */
-export const MAX_LIMIT = 100;
-
-interface Bounds {
-  /** Used when the override is absent and the environment variable is unset or blank. */
-  fallback: number;
-  min: number;
-  max?: number;
 }
 
 /**
