@@ -8,13 +8,13 @@ The webhook trigger in `plan.md` is implemented and committed on `main`, from `1
 The 30-minute cron trigger is gone. Typefully now posts to a Render web service, which verifies the
 delivery and starts `amplifier.handleEvent` on the Workflow service.
 
-| Area           | Files                                                                                                          |
-| -------------- | -------------------------------------------------------------------------------------------------------------- |
-| Receiver       | `src/webhook-server.ts`, `src/typefully/webhook.ts`                                                            |
-| Retried task   | `src/amplifier/handleEvent.ts`                                                                                 |
-| Settle rule    | `src/amplifier/settle.ts`, `src/amplifier/StillPublishingError.ts`, the check in `src/amplifier/checkPosts.ts` |
-| Infrastructure | `render.yaml`, `.env.example`                                                                                  |
-| Findings       | `docs/typefully-webhook.md`                                                                                    |
+| Area           | Files                                                                 |
+| -------------- | --------------------------------------------------------------------- |
+| Receiver       | `src/webhook-server.ts`, `src/typefully/webhook.ts`                   |
+| Retried task   | `src/amplifier/handleEvent.ts`                                        |
+| Settle rule    | `src/amplifier/settle.ts`, the check in `src/amplifier/checkPosts.ts` |
+| Infrastructure | `render.yaml`, `.env.example`                                         |
+| Findings       | `docs/typefully-webhook.md`                                           |
 
 `amplifier.checkPosts` still exists with no retry policy, so a manual dispatch and
 `scripts/local-run.ts` behave as they did before.

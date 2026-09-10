@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TaskContext } from "@renderinc/sdk/workflows";
 import { checkPostsImpl } from "../src/amplifier/checkPosts.js";
-import { StillPublishingError } from "../src/amplifier/StillPublishingError.js";
+import { StillPublishingError } from "../src/amplifier/settle.js";
 import type { CheckPostsInput } from "../src/config.js";
 import type { PublishedPost } from "../src/typefully/types.js";
 import { post } from "./support/fixtures.js";
