@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import { loadConfig, MAX_LIMIT, type CheckPostsInput } from "../config.js";
 import { postNote } from "../slack/postNote.js";
+import { isSummary, summarizeGroup } from "../summary/summarize.js";
 import { listPublished } from "../typefully/listPublished.js";
 import type { Platform } from "../typefully/types.js";
 import { groupPosts } from "./group.js";
 import { announcedDraftIds, claimGroup, isClaimed, markAnnounced, releaseGroup } from "./seen.js";
 import { notePlatforms, renderNote } from "./template.js";
-import { isSummary, summarizeGroup } from "../summary/summarize.js";
 import { withinWindow } from "./window.js";
 
 /** One announcement's outcome. */
