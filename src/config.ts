@@ -55,8 +55,8 @@ interface Bounds {
 /**
  * Resolve run config from per-run overrides, then environment, then defaults.
  *
- * DRY_RUN defaults to true: the first deploy logs the note it would post and
- * writes nothing to Slack unless DRY_RUN is explicitly "false".
+ * DRY_RUN defaults to false, so a run posts to Slack. Set it to exactly "true"
+ * to log the note the run would post and write nothing.
  *
  * The lookback default of 90 minutes covers the gap between the webhook event
  * and the run, plus any retry backoff, and it is wide enough that a manual
@@ -114,7 +114,7 @@ export function loadConfig(
     ...(slackChannel ? { slackChannel } : {}),
     callToAction: text(input.callToAction, env.AMPLIFIER_CALL_TO_ACTION, DEFAULT_CALL_TO_ACTION),
     summaryModel: text(input.summaryModel, env.AMPLIFIER_SUMMARY_MODEL, DEFAULT_SUMMARY_MODEL),
-    dryRun: input.dryRun ?? env.DRY_RUN !== "false",
+    dryRun: input.dryRun ?? env.DRY_RUN === "true",
   };
 }
 

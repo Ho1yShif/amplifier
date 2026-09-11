@@ -32,7 +32,7 @@ the full sequence; these are the steps that did not exist before this change.
    register it in Typefully under Settings > API, subscribed to `draft.published`.
 3. Copy the signing secret Typefully shows into `TYPEFULLY_WEBHOOK_SECRET` in the
    `amplifier-triggers` env group. The secret does not exist until step 2, so the order matters.
-4. Publish a test draft with `DRY_RUN=true` and read the Workflow logs before setting it to `false`.
+4. Publish a test draft with `DRY_RUN=true` and read the Workflow logs before removing it.
 
 ## Confirm the signature against a real delivery
 

@@ -14,7 +14,7 @@ describe("loadConfig", () => {
       seenTtlSeconds: 30 * 86_400,
       callToAction: DEFAULT_CALL_TO_ACTION,
       summaryModel: DEFAULT_SUMMARY_MODEL,
-      dryRun: true,
+      dryRun: false,
     });
   });
 
@@ -30,7 +30,7 @@ describe("loadConfig", () => {
         AMPLIFIER_LIMIT: "50",
         AMPLIFIER_CALL_TO_ACTION: "Boost it.",
         SLACK_CHANNEL: "social",
-        DRY_RUN: "false",
+        DRY_RUN: "true",
       },
     );
     expect(config).toEqual({
@@ -43,20 +43,20 @@ describe("loadConfig", () => {
       slackChannel: "social",
       callToAction: "Boost it.",
       summaryModel: DEFAULT_SUMMARY_MODEL,
-      dryRun: false,
+      dryRun: true,
     });
   });
 
   it("lets a per-run input override the env", () => {
     const config = loadConfig(
-      { lookbackMinutes: 5, dryRun: true },
+      { lookbackMinutes: 5, dryRun: false },
       {
         AMPLIFIER_LOOKBACK_MINUTES: "90",
-        DRY_RUN: "false",
+        DRY_RUN: "true",
       },
     );
     expect(config.lookbackMinutes).toBe(5);
-    expect(config.dryRun).toBe(true);
+    expect(config.dryRun).toBe(false);
   });
 
   it("takes a channel with or without a leading #", () => {
@@ -66,10 +66,11 @@ describe("loadConfig", () => {
     expect(loadConfig({}, { SLACK_CHANNEL: " " }).slackChannel).toBeUndefined();
   });
 
-  it("stays in dry run unless DRY_RUN is exactly false", () => {
-    expect(loadConfig({}, { DRY_RUN: "0" }).dryRun).toBe(true);
-    expect(loadConfig({}, { DRY_RUN: "no" }).dryRun).toBe(true);
-    expect(loadConfig({}, { DRY_RUN: "false" }).dryRun).toBe(false);
+  it("posts unless DRY_RUN is exactly true", () => {
+    expect(loadConfig({}, { DRY_RUN: "1" }).dryRun).toBe(false);
+    expect(loadConfig({}, { DRY_RUN: "yes" }).dryRun).toBe(false);
+    expect(loadConfig({}, { DRY_RUN: "TRUE" }).dryRun).toBe(false);
+    expect(loadConfig({}, { DRY_RUN: "true" }).dryRun).toBe(true);
   });
 
   it("uses the default for a blank env value", () => {

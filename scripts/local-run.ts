@@ -29,7 +29,6 @@ const env: NodeJS.ProcessEnv = {
   TYPEFULLY_BASE_URL: process.env.TYPEFULLY_BASE_URL ?? STUB,
   SLACK_WEBHOOK_URL: process.env.SLACK_WEBHOOK_URL ?? `${STUB}/slack`,
   REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
-  DRY_RUN: process.env.DRY_RUN ?? "false",
 };
 
 if (env.TYPEFULLY_API_KEY === PLACEHOLDER_KEY && env.TYPEFULLY_BASE_URL === TYPEFULLY_BASE_URL) {

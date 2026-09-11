@@ -86,7 +86,7 @@ render workflows tasks list --local
 render workflows start amplifier.checkPosts --local --input='[{}]'
 ```
 
-`DRY_RUN=true` is the default, so a local run logs the note it would post and writes nothing to Slack.
+`.env.example` sets `DRY_RUN=true`, so a local run logs the note it would post and writes nothing to Slack.
 
 Run this before committing:
 
@@ -147,8 +147,8 @@ region Oregon, built from `main`.
 8. Add `REDIS_URL` to `amplifier-workflow`, set to the `amplifier-kv` internal connection string from its Dashboard page. Do not copy the value from `.env` or `.env.example`; those hold `redis://localhost:6379` for local dev, and on Render nothing listens there. A run using it fails every Key Value task with repeated `[ioredis] Unhandled error event: AggregateError [ECONNREFUSED]` and `Reached the max retries per request limit (which is 20)`.
 9. Confirm the link took: the Workflow service's environment page lists `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5` from the group. If it does not, the group exists but is not linked, and every note will carry `(Summarization LLM call failed)`.
 10. Register the receiver in Typefully, following [Registering the Typefully webhook](#registering-the-typefully-webhook) below.
-11. Leave `DRY_RUN` unset for a couple of published posts and read the Workflow logs to ensure everything is working as intended.
-12. Add `DRY_RUN=false` to `amplifier-workflow`.
+11. Add `DRY_RUN=true` to `amplifier-workflow`, publish a couple of posts, and read the Workflow logs. Each note the run would have sent is logged after `[dry run] would post:`.
+12. Remove `DRY_RUN` from `amplifier-workflow` so runs post to Slack.
 
 ### Creating the Workflow service
 
@@ -259,7 +259,7 @@ manifest.
 | `SLACK_CHANNEL`                  | —                           | —     | Channel the note goes to, with or without a leading `#`. Needs `SLACK_BOT_TOKEN`.                                                                                                                                                                    |
 | `ANTHROPIC_API_KEY`              | —                           | —     | Required for the summary. Without it the note carries the fallback lead line.                                                                                                                                                                        |
 | `REDIS_URL`                      | —                           | —     | Required. The `amplifier-kv` internal connection string.                                                                                                                                                                                             |
-| `DRY_RUN`                        | `true`                      | —     | Set to `false` to post to Slack.                                                                                                                                                                                                                     |
+| `DRY_RUN`                        | `false`                     | —     | Set to exactly `true` to log the note instead of posting to Slack.                                                                                                                                                                                   |
 | `AMPLIFIER_LOOKBACK_MINUTES`     | `90`                        | ≥ 1   | Covers the gap between the event and the run, plus any retry backoff.                                                                                                                                                                                |
 | `AMPLIFIER_GROUP_WINDOW_MINUTES` | `10`                        | ≥ 0   | How close two drafts must be to share a note. `0` turns grouping off.                                                                                                                                                                                |
 | `AMPLIFIER_SETTLE_MINUTES`       | `10`                        | 0–15  | How long a run waits for a platform's permalink before announcing without it. `0` turns settling off. The maximum is the retry budget on `amplifier.handleEvent`, past which the retries run out before the deadline and the event produces no note. |
