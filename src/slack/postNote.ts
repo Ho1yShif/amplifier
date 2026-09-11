@@ -41,12 +41,30 @@ function slackDeps(env: NodeJS.ProcessEnv): SlackDeps {
   };
 }
 
-/** Raw implementation of amplifier.postNote. */
-export function postNoteImpl(
+/**
+ * Raw implementation of amplifier.postNote.
+ *
+ * Throws when Slack is not configured, instead of letting `webhookPort` log the
+ * note to the console and return `delivered: false`. A run that cannot post
+ * must not report success.
+ *
+ * The condition mirrors the branch in `postMessageImpl` as of
+ * `@render-lab/tasks-slack` 0.3.0: a channel plus a bot token takes the Web API
+ * route, and everything else needs the webhook URL. A change to that branch
+ * would make the two disagree.
+ */
+export async function postNoteImpl(
   ctx: TaskContext,
   input: PostMessageInput,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<PostMessageResult> {
+  const viaWebApi = Boolean(input.channel && env.SLACK_BOT_TOKEN);
+  if (!viaWebApi && !env.SLACK_WEBHOOK_URL) {
+    throw new Error(
+      "Slack is not configured, so the note was not posted. Set SLACK_WEBHOOK_URL, or set " +
+        "SLACK_BOT_TOKEN together with SLACK_CHANNEL.",
+    );
+  }
   return postMessageImpl(ctx, input, slackDeps(env));
 }
 

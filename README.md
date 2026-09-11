@@ -241,8 +241,8 @@ and both credentials show up on the app's pages afterwards. Copy one of these tw
   `SLACK_CHANNEL` pick the channel, and you `/invite` the bot there first. The
   leading `#` is optional.
 
-If neither is set, `amplifier.postNote` logs to the console and
-reports `delivered: false`.
+Set one of them. If neither is set, `amplifier.postNote` throws and the run ends
+`failed`. That is deliberate: a run that cannot post must not report success.
 
 Both credentials are minted during install, so neither can be committed alongside the
 manifest.
@@ -256,7 +256,7 @@ manifest.
 | `TYPEFULLY_BASE_URL`             | Typefully                   | —     | Local stub only. The API key goes to whatever host this names.                                                                                                                                                                                       |
 | `SLACK_WEBHOOK_URL`              | —                           | —     | Incoming webhook. Locked to the channel you created it for.                                                                                                                                                                                          |
 | `SLACK_BOT_TOKEN`                | —                           | —     | Bot token. Required for `SLACK_CHANNEL` to be honored.                                                                                                                                                                                               |
-| `SLACK_CHANNEL`                  | —                           | —     | Channel the note goes to, with or without a leading `#`. Needs `SLACK_BOT_TOKEN`.                                                                                                                                                                    |
+| `SLACK_CHANNEL`                  | —                           | —     | Channel the note goes to, with or without a leading `#`. Needs `SLACK_BOT_TOKEN`, and a bot token with no channel fails the run, so set both or use the webhook alone.                                                                               |
 | `ANTHROPIC_API_KEY`              | —                           | —     | Required for the summary. Without it the note carries the fallback lead line.                                                                                                                                                                        |
 | `REDIS_URL`                      | —                           | —     | Required. The `amplifier-kv` internal connection string.                                                                                                                                                                                             |
 | `DRY_RUN`                        | `false`                     | —     | Set to exactly `true` to log the note instead of posting to Slack.                                                                                                                                                                                   |

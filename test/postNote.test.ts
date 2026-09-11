@@ -78,15 +78,27 @@ describe("postNoteImpl", () => {
     }
   });
 
-  it("falls back to the console with no token and no webhook", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const { restore } = captureFetch({});
+  it("throws with no token and no webhook", async () => {
+    const { sent, restore } = captureFetch({});
     try {
       const { ctx } = taskCtx({});
-      expect(await postNoteImpl(ctx, message, {})).toEqual({ delivered: false });
+      await expect(postNoteImpl(ctx, message, {})).rejects.toThrow(/Slack is not configured/);
+      expect(sent).toHaveLength(0);
     } finally {
       restore();
-      log.mockRestore();
+    }
+  });
+
+  it("throws with a bot token and no channel", async () => {
+    const { sent, restore } = captureFetch({});
+    try {
+      const { ctx } = taskCtx({});
+      await expect(postNoteImpl(ctx, message, { SLACK_BOT_TOKEN: "xoxb-test" })).rejects.toThrow(
+        /Slack is not configured/,
+      );
+      expect(sent).toHaveLength(0);
+    } finally {
+      restore();
     }
   });
 });
