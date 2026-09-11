@@ -27,6 +27,42 @@ function readDrafts(body: unknown): TypefullyDraft[] {
 /** Typefully's real API. TYPEFULLY_BASE_URL overrides it for a local stub. */
 export const TYPEFULLY_BASE_URL = "https://api.typefully.com";
 
+/** Hostnames that can only be this machine, in the forms `new URL` reports. */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * The base URL to send the API key to, or a throw.
+ *
+ * TYPEFULLY_BASE_URL exists to point a run at `scripts/typefully-stub.ts`, and
+ * `auth` sends `Bearer $TYPEFULLY_API_KEY` to whatever host it names. Anything
+ * that is neither the real API nor a loopback address is refused, so the key
+ * cannot be redirected to a third party by setting one environment variable.
+ */
+function checkedBaseUrl(value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === TYPEFULLY_BASE_URL) return TYPEFULLY_BASE_URL;
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error(`TYPEFULLY_BASE_URL is not a URL: ${trimmed}`);
+  }
+  // "localhost:8787" parses, as a URL whose scheme is "localhost" and whose
+  // host is empty, so check the scheme before the host to name that typo.
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`TYPEFULLY_BASE_URL needs an http:// or https:// scheme; got ${trimmed}.`);
+  }
+  if (!LOOPBACK_HOSTS.has(url.hostname)) {
+    throw new Error(
+      `TYPEFULLY_BASE_URL is ${trimmed}, and TYPEFULLY_API_KEY would be sent to ` +
+        `${url.hostname}. It only takes a loopback address, for the local stub, or ` +
+        `${TYPEFULLY_BASE_URL}. Leave it unset in production.`,
+    );
+  }
+  return trimmed;
+}
+
 /**
  * Default Typefully port. The API key is read from TYPEFULLY_API_KEY on first
  * call, never at import, so a missing secret fails on use.
@@ -39,9 +75,7 @@ export function typefullyPort(
 ): TypefullyPort {
   const env = opts.env ?? process.env;
   const client = createHttpClient({
-    // Set TYPEFULLY_BASE_URL only to point a local stub at scripts/typefully-stub.ts.
-    // The bearer token goes to whatever host it names, so leave it unset in production.
-    baseUrl: env.TYPEFULLY_BASE_URL ?? TYPEFULLY_BASE_URL,
+    baseUrl: checkedBaseUrl(env.TYPEFULLY_BASE_URL),
     label: "Typefully API",
     // createHttpClient's fetchImpl is optional but not nullable, so omitting
     // the key selects global fetch. Spread it rather than pass undefined.

@@ -134,4 +134,58 @@ describe("typefullyPort", () => {
     const port = typefullyPort({ env: {}, fetchImpl: fakeFetch([]) });
     await expect(port.listPublishedDrafts("set_1", 25)).rejects.toThrow(/TYPEFULLY_API_KEY/);
   });
+
+  it("sends the key to a loopback stub", async () => {
+    const fetchImpl = fakeFetch({ results: [] });
+    const port = typefullyPort({
+      env: { TYPEFULLY_API_KEY: "key_1", TYPEFULLY_BASE_URL: "http://localhost:8787" },
+      fetchImpl,
+    });
+
+    await port.listPublishedDrafts("set_1", 25);
+
+    expect(fetchImpl.mock.calls[0]?.[0]).toContain("http://localhost:8787/v2/social-sets/set_1");
+  });
+
+  it("refuses to send the key to a host that is not the API or the stub", () => {
+    expect(() =>
+      typefullyPort({
+        env: {
+          TYPEFULLY_API_KEY: "key_1",
+          TYPEFULLY_BASE_URL: "https://api.typefully.com.evil.io",
+        },
+        fetchImpl: fakeFetch([]),
+      }),
+    ).toThrow(/TYPEFULLY_API_KEY would be sent to api\.typefully\.com\.evil\.io/);
+  });
+
+  it("names the missing scheme on a bare host and port", () => {
+    expect(() =>
+      typefullyPort({
+        env: { TYPEFULLY_API_KEY: "key_1", TYPEFULLY_BASE_URL: "localhost:8787" },
+        fetchImpl: fakeFetch([]),
+      }),
+    ).toThrow(/needs an http:\/\/ or https:\/\/ scheme/);
+  });
+
+  it("throws on a base URL that will not parse", () => {
+    expect(() =>
+      typefullyPort({
+        env: { TYPEFULLY_API_KEY: "key_1", TYPEFULLY_BASE_URL: "not a url" },
+        fetchImpl: fakeFetch([]),
+      }),
+    ).toThrow(/TYPEFULLY_BASE_URL is not a URL/);
+  });
+
+  it("takes the real API and a blank value as unset", async () => {
+    const fetchImpl = fakeFetch({ results: [] });
+    const port = typefullyPort({
+      env: { TYPEFULLY_API_KEY: "key_1", TYPEFULLY_BASE_URL: "  " },
+      fetchImpl,
+    });
+
+    await port.listPublishedDrafts("set_1", 25);
+
+    expect(fetchImpl.mock.calls[0]?.[0]).toContain("https://api.typefully.com/");
+  });
 });
