@@ -1,25 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import { loadConfig, MAX_LIMIT, type CheckPostsInput } from "../config.js";
-import { postNote } from "../slack/postNote.js";
-import { isSummary, summarizeGroup } from "../summary/summarize.js";
 import { listPublished } from "../typefully/listPublished.js";
 import type { Platform } from "../typefully/types.js";
+import { announceGroups, type NoteResult } from "./announce.js";
 import { groupPosts } from "./group.js";
-import { announcedDraftIds, claimGroup, isClaimed, markAnnounced, releaseGroup } from "./seen.js";
+import { announcedDraftIds } from "./seen.js";
 import { pendingForDraft, settleDeadlineMs, StillPublishingError } from "./settle.js";
-import { notePlatforms, renderNote } from "./template.js";
 import { withinWindow } from "./window.js";
 
-/** One announcement's outcome. */
-export interface NoteResult {
-  draftIds: string[];
-  platforms: Platform[];
-  /** false in dry run, and false when Slack fell back to the console. */
-  delivered: boolean;
-  /** Whether the model wrote this note's lead line. False means the fallback text. */
-  summarized: boolean;
-}
+export type { NoteResult };
 
 export interface CheckPostsResult {
   /** Published drafts that mapped to a post amplifier can announce. */
@@ -105,81 +95,18 @@ export async function checkPostsImpl(
   const unannounced = recent.filter((p) => !announced.has(p.draftId));
   const groups = groupPosts(unannounced, config.groupWindowMinutes);
 
-  const notes: NoteResult[] = [];
-  let skipped = announced.size;
-
-  for (const group of groups) {
-    // Before the claim, not inside it. LLM_RETRY spends about 62 seconds of
-    // backoff across 5 retries plus six call durations, and the in-flight lock
-    // lives 300 seconds — inside the claim, the lock can expire mid-flight and
-    // the next run re-posts the note. The cost is one wasted call when two runs
-    // race the same group.
-    const summary = await summarizeGroup(ctx, group, { model: config.summaryModel });
-    if (!isSummary(summary)) {
-      console.error(
-        `[amplifier] No summary for ${group.draftIds.join(", ")}: ${summary.error}. ` +
-          `Posting the fallback note.`,
-      );
-    }
-
-    const outcome = await claimGroup(ctx, group, runToken);
-    if (!isClaimed(outcome)) {
-      skipped += group.draftIds.length;
-      continue;
-    }
-    const { claims } = outcome;
-
-    // Only the event's draft went through the settle check, so only its note
-    // names the platforms the deadline dropped.
-    const dropped =
-      input.draftId !== undefined && group.draftIds.includes(input.draftId) ? droppedPlatforms : [];
-
-    const message = renderNote(group, {
-      ...(config.slackChannel ? { channel: config.slackChannel } : {}),
-      callToAction: config.callToAction,
-      ...(isSummary(summary) ? { summary: summary.line } : { summaryError: summary.error }),
-      ...(dropped.length > 0 ? { droppedPlatforms: dropped } : {}),
-    });
-    const platforms = notePlatforms(group);
-
-    let delivered = false;
-    if (config.dryRun) {
-      console.log(`[dry run] would post:\n${message.markdown ?? message.text}`);
-    } else {
-      try {
-        ({ delivered } = await ctx.run(postNote, message));
-        if (delivered) {
-          await markAnnounced(ctx, group.draftIds, config.seenTtlSeconds);
-        }
-      } catch (err) {
-        await releaseGroup(ctx, claims);
-        throw err;
-      }
-
-      if (!delivered) {
-        // Slack fell back to the console because no bot token and no webhook URL
-        // is set. Nothing reached the channel, so leave the drafts unannounced.
-        console.error(
-          `[amplifier] Slack did not accept the note for ${group.draftIds.join(", ")}. Set ` +
-            `SLACK_BOT_TOKEN or SLACK_WEBHOOK_URL. A later run will retry.`,
-        );
-      }
-    }
-    await releaseGroup(ctx, claims);
-    notes.push({
-      draftIds: group.draftIds,
-      platforms,
-      delivered,
-      summarized: isSummary(summary),
-    });
-  }
+  const { notes, skipped } = await announceGroups(ctx, groups, config, runToken, {
+    ...(input.draftId !== undefined && droppedPlatforms.length > 0
+      ? { droppedFor: { draftId: input.draftId, platforms: droppedPlatforms } }
+      : {}),
+  });
 
   return {
     scanned: posts.length,
     inWindow: recent.length,
     groups: groups.length,
     notified: notes.filter((n) => n.delivered).length,
-    skipped,
+    skipped: skipped + announced.size,
     dryRun: config.dryRun,
     droppedPlatforms,
     notes,
