@@ -205,9 +205,35 @@ so `render workflows create` needs no `--env-var` or `--env-file` flags.
 4. Typefully now shows a signing secret. Add a new key to the `amplifier-triggers` env group, named `TYPEFULLY_WEBHOOK_SECRET`, and paste the secret as its value. The key does not exist yet, because Typefully creates the secret only when you save the webhook, so deployment step 4 could not add it.
 5. Redeploy `amplifier-webhook`. It reads `TYPEFULLY_WEBHOOK_SECRET` at startup, so it rejects every delivery until it restarts with the new value.
 
-### Manual re-run
+### Manual trigger
 
-The webhook is the only trigger, so a dropped delivery means a post nobody announces. Start a run by hand:
+The webhook is the only trigger, so a dropped delivery means a post nobody announces.
+
+#### One post
+
+`amplifier.announcePost` takes the permalink you have in front of you:
+
+```bash
+render workflows start <slug>/amplifier.announcePost \
+  --input='[{"url":"https://x.com/render/status/2097716776390058019"}]'
+```
+
+The Dashboard route is the same task from the Workflow service's **Tasks** tab, pasting the same JSON array. The array is the task's positional arguments, so a single object in an array is the shape.
+
+| Field     | What it does                                     |
+| --------- | ------------------------------------------------ |
+| `url`     | Permalink to the live post, X or LinkedIn.       |
+| `draftId` | Typefully draft id, when the URL is not to hand. |
+| `force`   | Re-post a draft that was already announced.      |
+| `dryRun`  | Log the note instead of posting it.              |
+
+`dryRun: true` prints the note after `[dry run] would post:` in the run's logs and writes no marker, so the real run still has the post to announce.
+
+Only the newest 50 published drafts are searched, so a post from weeks ago needs its `draftId`.
+
+#### A whole window
+
+When several posts were missed at once, run the scan instead:
 
 ```bash
 render workflows start <slug>/amplifier.checkPosts --input='[{}]'
