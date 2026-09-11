@@ -39,9 +39,9 @@ export function groupPosts(posts: PublishedPost[], groupWindowMinutes: number): 
     const startMs = Date.parse(post.publishedAt);
     const platforms = post.links.map((l) => l.platform);
     const overlaps = platforms.some((p) => currentPlatforms.has(p));
-    const inWindow = current !== undefined && startMs - currentStartMs <= windowMs;
+    const inWindow = startMs - currentStartMs <= windowMs;
 
-    if (current && inWindow && !overlaps) {
+    if (current !== undefined && inWindow && !overlaps) {
       current.draftIds.push(post.draftId);
       current.previews.push(post.preview);
       current.links.push(...post.links);
