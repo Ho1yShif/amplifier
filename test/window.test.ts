@@ -25,6 +25,16 @@ describe("withinWindow", () => {
     expect(withinWindow(posts, NOW, 90).map((p) => p.draftId)).toEqual(["1"]);
   });
 
+  it("keeps a post exactly on the clock skew allowance", () => {
+    const posts = [post("1", "2026-09-04T16:05:00Z")];
+    expect(withinWindow(posts, NOW, 90).map((p) => p.draftId)).toEqual(["1"]);
+  });
+
+  it("drops a post published well after the window's end", () => {
+    const posts = [post("1", "2026-09-04T18:00:00Z")];
+    expect(withinWindow(posts, NOW, 90)).toEqual([]);
+  });
+
   it("drops a post with an unparseable timestamp", () => {
     const posts = [post("1", "not-a-date")];
     expect(withinWindow(posts, NOW, 90)).toEqual([]);
