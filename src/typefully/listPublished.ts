@@ -1,4 +1,5 @@
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
+import { DEFAULT_LIMIT } from "../config.js";
 import { compareTime } from "../time.js";
 import { defaultDeps, type TypefullyDeps } from "./client.js";
 import { mapDraft } from "./map.js";
@@ -10,8 +11,9 @@ export async function listPublishedImpl(
   _ctx: TaskContext,
   input: ListPublishedInput,
   deps: TypefullyDeps = defaultDeps,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<ListPublishedResult> {
-  const socialSetId = input.socialSetId ?? process.env.TYPEFULLY_SOCIAL_SET_ID;
+  const socialSetId = input.socialSetId ?? env.TYPEFULLY_SOCIAL_SET_ID;
   if (!socialSetId) {
     throw new Error(
       "No social set configured. Set TYPEFULLY_SOCIAL_SET_ID or pass { socialSetId }. " +
@@ -19,7 +21,10 @@ export async function listPublishedImpl(
     );
   }
 
-  const drafts = await deps.typefully.listPublishedDrafts(socialSetId, input.limit ?? 25);
+  const drafts = await deps.typefully.listPublishedDrafts(
+    socialSetId,
+    input.limit ?? DEFAULT_LIMIT,
+  );
   const posts = drafts
     .map(mapDraft)
     .filter((p): p is PublishedPost => p !== null)

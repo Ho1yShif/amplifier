@@ -53,7 +53,7 @@ export interface TypefullyDraft {
 export interface ListPublishedInput {
   /** Typefully social set to read. Defaults to env TYPEFULLY_SOCIAL_SET_ID. */
   socialSetId?: string;
-  /** Max drafts to pull in one call. Default 25. */
+  /** Max drafts to pull in one call. Defaults to DEFAULT_LIMIT. */
   limit?: number;
 }
 

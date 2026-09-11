@@ -45,6 +45,9 @@ export interface AmplifierConfig {
  */
 export const MAX_LIMIT = 50;
 
+/** Drafts pulled per run when nothing overrides it. Also listPublished's own fallback. */
+export const DEFAULT_LIMIT = 25;
+
 interface Bounds {
   /** Used when the override is absent and the environment variable is unset or blank. */
   fallback: number;
@@ -82,7 +85,7 @@ export function loadConfig(
   return {
     ...(socialSetId ? { socialSetId } : {}),
     limit: whole("AMPLIFIER_LIMIT", input.limit, env.AMPLIFIER_LIMIT, {
-      fallback: 25,
+      fallback: DEFAULT_LIMIT,
       min: 1,
       max: MAX_LIMIT,
     }),

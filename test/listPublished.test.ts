@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fakeCtx } from "@render-lab/test-utils";
+import { DEFAULT_LIMIT } from "../src/config.js";
 import { listPublishedImpl } from "../src/typefully/listPublished.js";
 import { typefullyPort } from "../src/typefully/client.js";
 import type { TypefullyDeps } from "../src/typefully/client.js";
@@ -42,10 +43,16 @@ describe("listPublishedImpl", () => {
     expect(deps.typefully.listPublishedDrafts).toHaveBeenCalledWith("set_9", 5);
   });
 
-  it("defaults the limit to 25", async () => {
+  it("defaults the limit to DEFAULT_LIMIT", async () => {
     const deps = fakeDeps([]);
     await listPublishedImpl(fakeCtx(), { socialSetId: "set_9" }, deps);
-    expect(deps.typefully.listPublishedDrafts).toHaveBeenCalledWith("set_9", 25);
+    expect(deps.typefully.listPublishedDrafts).toHaveBeenCalledWith("set_9", DEFAULT_LIMIT);
+  });
+
+  it("falls back to the social set in the environment", async () => {
+    const deps = fakeDeps([]);
+    await listPublishedImpl(fakeCtx(), {}, deps, { TYPEFULLY_SOCIAL_SET_ID: "set_env" });
+    expect(deps.typefully.listPublishedDrafts).toHaveBeenCalledWith("set_env", DEFAULT_LIMIT);
   });
 
   it("orders posts newest first by parsed time, not string order", async () => {
@@ -63,12 +70,11 @@ describe("listPublishedImpl", () => {
   });
 
   it("throws a clear error without a social set id", async () => {
-    // stubEnv so a TYPEFULLY_SOCIAL_SET_ID in the developer's shell can't hide the error.
-    vi.stubEnv("TYPEFULLY_SOCIAL_SET_ID", "");
-    await expect(listPublishedImpl(fakeCtx(), {}, fakeDeps([]))).rejects.toThrow(
+    // An empty env, so a TYPEFULLY_SOCIAL_SET_ID in the developer's shell can't
+    // hide the error.
+    await expect(listPublishedImpl(fakeCtx(), {}, fakeDeps([]), {})).rejects.toThrow(
       /TYPEFULLY_SOCIAL_SET_ID/,
     );
-    vi.unstubAllEnvs();
   });
 });
 
