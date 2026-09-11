@@ -1,606 +1,340 @@
-# Webhook Trigger Plan
+# Silent-Failure Cleanup Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to work through this task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the 30-minute cron trigger with a Typefully webhook receiver, so a note reaches
-`#amplify` seconds after a post goes live instead of up to half an hour later. The receiver only
-verifies the delivery and starts a run; every step after the HTTP boundary is a registered workflow
-task with a retry policy.
+**Goal:** Close the two remaining ways amplifier can look healthy and announce nothing, and make
+announcing one post by hand a single command. A run that cannot post must fail, the per-run limit
+must have one default instead of two, and recovering a dropped delivery must not require
+reconstructing a time window.
 
-**Baseline:** `pnpm test` passes 134 tests across 13 files and `pnpm typecheck` is clean at
-`bbf7288`. Every task below must end with both still passing. Node 22.20.0 or newer is required;
-pnpm refuses to run on 22.12.
+**Baseline:** `pnpm check` passes at `7b5bd38` — 190 tests across 16 files, typecheck and format
+clean. Every task below must end with all three still passing. pnpm 11.18.0 refuses to run on Node
+22.12; use 22.13 or newer.
 
 **Not in scope:** The announce-once guarantee, the dedupe unit (still one draft), the Key Value key
-names, the grouping rule in `groupPosts`, and the note's rendered output all stay as they are. The
-Workflow service is still created by hand, because Blueprints do not support Workflows.
+names, the grouping rule in `groupPosts`, the settle rule, and the note's rendered output all stay as
+they are. The Workflow service is still created by hand, because Blueprints do not support Workflows.
 
 ## What this plan replaces
 
-`plan.md` used to hold the cleanup plan, all 16 tasks checked. That work is committed. Task 15 of
-this plan updates the one file that describes what `plan.md` contains.
+`plan.md` used to hold the webhook trigger plan, all 15 tasks checked and committed through
+`def34fd`. `docs/handoff-webhook-trigger.md` records what shipped.
 
 ## Decisions this plan implements
 
-Two questions were settled before the plan was written.
+**A missing Slack credential fails the run.** `webhookPort` in `@render-lab/tasks-slack` logs the
+note to the console and returns `delivered: false` when `SLACK_WEBHOOK_URL` is unset, which is right
+for a demo and wrong here: `checkPostsImpl` logs the miss and the run still ends `completed` with
+`notified: 0`. The same thing happens with `SLACK_BOT_TOKEN` set and `SLACK_CHANNEL` unset, because
+`postMessageImpl` only takes the Web API branch when a channel is given and otherwise falls through
+to the unconfigured webhook. Both become a thrown error at the delivery boundary.
 
-The cron job is deleted rather than kept as a slower backstop. The webhook becomes the only trigger.
-The cost is real and worth stating once: if Typefully drops a delivery, that post is never announced
-and nothing comes back for it. The retry policies below cover failures after an event arrives, not
-an event that never arrives. Task 14 adds a manual re-run command to the README for that case.
+The check goes in `postNoteImpl`, not in `loadConfig`. `loadConfig` would catch it earlier, before
+the Typefully read and the LLM call, but `test/checkPosts.test.ts` calls `checkPostsImpl` with an
+empty environment and injected Slack deps on purpose, so an environment check there would fail
+about thirty tests that are not testing the environment.
 
-A draft cross-posted to X and LinkedIn does not publish to both at the same instant, and `mapDraft`
-counts a platform as published only once its permalink exists. The cron hid this by arriving late.
-A webhook arrives immediately, so the first event can see a draft with only one permalink filled in.
-The fix is a settle rule: while a platform is enabled but has no permalink, the publish is still in
-flight, so the task throws and the retry re-reads Typefully a minute later. Once the settle deadline
-passes, the note goes out with whatever links exist. A note with one link beats no note.
+**A dropped delivery is recovered by a task, not by a cron sweep or a hand-built window.** The
+webhook trigger plan deleted the 30-minute cron and accepted the cost in writing: if Typefully drops
+a delivery, that post is never announced. Restoring a cron service is not worth another service for a
+delivery failure that has not happened yet.
 
-## What the vendor already provides
+The recovery that exists today is `amplifier.checkPosts` over the whole lookback, which cannot target
+one post. Doing that by hand means finding the draft id with `curl` and `jq`, pinning `now` and
+`lookbackMinutes` around its publish time, turning grouping off, and knowing that `withinWindow`
+keeps future timestamps so the window has no upper bound. Too many steps to run under pressure, and
+every one of them is a step a task can take. `amplifier.announcePost` takes the post's URL and does
+the rest.
 
-Read this before writing any receiver code. `@render-lab/triggers` 0.2.0 ships the whole HTTP layer,
-so the only new code on the receiver side is one adapter and one entry point.
+It shares the delivery path with `amplifier.checkPosts` rather than copying it. The per-group
+sequence — summarize, claim, post, mark, release — moves into one function both tasks call, so the
+announce-once guarantee has one implementation.
 
-`createDispatchServer({ webhooks })` returns a Hono app with:
-
-- `GET /healthz`, returning `ok`. This is the Render health check path.
-- `POST /webhooks/:name` for each key in `webhooks`. It reads the body under a 1 MiB cap before
-  verifying anything, calls `adapter.verify({ headers, rawBody })` and answers 401 when it fails,
-  parses the JSON, calls `adapter.map({ headers, body })`, and answers 204 when `map` returns null.
-  On a mapped event it calls `dispatcher.start(task, args)` and answers 202, or 502 when the
-  dispatch throws.
-- `POST /tasks/:task`, a bearer-authed generic dispatcher gated on `DISPATCH_TOKEN`.
-
-`serveDispatchServer` is the same app bound to `$PORT` on all interfaces.
-
-The 502 on a failed dispatch makes Typefully retry the delivery. That hop is the one place
-a workflow task cannot wrap, because dispatch creates the run.
-
-`WebhookAdapter` is `{ verify(req: WebhookRequest): boolean; map(ctx: WebhookContext): WebhookDispatch | null }`.
-Note that `/webhooks/:name` does not check `DISPATCH_TOKEN`. `verify` is the only thing standing
-between the public URL and a workflow run, so Task 1 has to finish before Task 9 can be written.
+**One default for the per-run limit.** `loadConfig` falls back to 25 and `listPublishedImpl` defaults
+`input.limit` to 25 independently. They agree today by coincidence.
 
 ---
 
-## Group A: the unknown
+## Group A: a run that cannot post must fail
 
-### Task 1: Find out how Typefully signs a delivery
+### Task 1: Make postNoteImpl fail closed
 
 **Files:**
 
-- Create: `docs/typefully-webhook.md`
-- Create: `test/support/typefully-event.json`
+- Modify: `src/slack/postNote.ts`
+- Modify: `test/postNote.test.ts`
 
-The Typefully docs describe six events (draft created, published, scheduled, status changed, tags
-changed, deleted) and say webhooks are added under Settings > API. They do not say whether a
-delivery is signed, which header carries the signature, or what the payload holds. `verify` and
-`map` cannot be written until that is known.
+`postNoteImpl` already builds the vendor's deps per call, so it is the one place that sees both the
+environment and the message. Add the check there, before `postMessageImpl`:
 
-Register a webhook against a request-capture URL, publish a test draft, and record what arrives:
+```ts
+const viaWebApi = Boolean(input.channel && env.SLACK_BOT_TOKEN);
+if (!viaWebApi && !env.SLACK_WEBHOOK_URL) {
+  throw new Error(
+    "Slack is not configured, so the note was not posted. Set SLACK_WEBHOOK_URL, or set " +
+      "SLACK_BOT_TOKEN together with SLACK_CHANNEL.",
+  );
+}
+```
 
-1. Every request header, with the signature header's name and format.
-2. Whether Typefully offers a signing secret in the UI when the webhook is added.
-3. The full body for a `draft.published` event, including whether it carries the draft id, the
-   platform permalinks, and a timestamp.
-4. Whether a cross-post to X and LinkedIn produces one event or two.
+The condition mirrors the branch in `postMessageImpl`: a channel plus a bot token takes the Web API
+route, and everything else needs the webhook URL. Say so in the comment, and name the vendor version
+it was read against, because a change to that branch would make the two disagree.
 
-Write the findings to `docs/typefully-webhook.md` and save one real body, with any account
-identifiers replaced, as `test/support/typefully-event.json`. Tasks 9 and 10 read both.
+`amplifier.postNote` carries `SLACK_RETRY`, so a configuration error costs five retries before the
+run fails. Leave that alone. The run ending `failed` in the dashboard is the point, and the retries
+cost seconds.
 
-Then pick the verification strategy and record which one, with the reason:
+In `test/postNote.test.ts`, replace "falls back to the console with no token and no webhook" with a
+case asserting the throw, and add one for a bot token with no channel. The three existing delivery
+tests already pass an environment holding a credential, so they do not change.
 
-- Typefully signs with an HMAC over the raw body. `verify` recomputes it and compares with
-  `timingSafeEqual`. Preferred.
-- Typefully sends a static secret header. `verify` compares it with `timingSafeEqual`.
-- Typefully sends nothing verifiable. The webhook is registered at
-  `/webhooks/typefully-<random>` and `verify` returns true, with the path segment as the secret.
-  Record this as a deficiency in `docs/typefully-webhook.md`.
-
-Do not guess. If the capture cannot be run, stop and say so rather than implementing a `verify`
-against an invented header name.
-
-**Verify:** `docs/typefully-webhook.md` names the real header, and
-`test/support/typefully-event.json` parses as JSON.
+**Verify:** `pnpm typecheck && pnpm test`
 
 - [x] Task 1 complete
 
----
-
-## Group B: the settle rule
-
-This group is independent of Task 1 and can be worked in parallel with it.
-
-### Task 2: Report which platforms are still publishing
+### Task 2: Correct the not-delivered branch in checkPostsImpl
 
 **Files:**
 
-- Modify: `src/typefully/types.ts`
-- Modify: `src/typefully/map.ts`
-- Modify: `test/map.test.ts`
+- Modify: `src/amplifier/checkPosts.ts`
 
-`mapDraft` reads the raw draft and is the only place that sees `x_post_enabled` and
-`linkedin_post_enabled`. Task 2 of the previous plan kept those two fields purely as documentation
-of what the mapper ignores. They now do a job: enabled with no permalink means the publish is in
-flight.
+With Task 1 in place, `delivered: false` no longer means "no credential is set" — the real Slack
+ports either deliver or throw, so the branch is only reachable through injected deps. Keep it, and
+rewrite the comment and the log line, which currently tell the reader to set `SLACK_BOT_TOKEN` or
+`SLACK_WEBHOOK_URL`. Say instead that the Slack port reported the note undelivered without throwing,
+that the drafts stay unannounced, and that a later run retries them.
 
-Add to `PublishedPost`:
-
-```ts
-/** Platforms this draft was queued for that have not reported a permalink yet. */
-pending: Platform[];
-```
-
-Always present, empty when nothing is outstanding, so no caller has to test for undefined. Populate
-it in `mapDraft`: a platform is pending when its `*_post_enabled` is true and its `*_published_url`
-is absent. Extend `PLATFORM_FIELDS` with the `enabled` field name so the loop still reads both
-platforms one way.
-
-A platform can be both published and pending under this rule if Typefully sets the timestamp before
-the URL. Prefer that over the alternative: a link with no URL renders as bare text, so the note
-should wait.
-
-Update the doc comment on `mapDraft` and drop the two "Not read" comments in `types.ts`, which are
-now false.
-
-Add cases to `test/map.test.ts`: enabled with no URL is pending, enabled with a URL is not, not
-enabled is not, and a draft with neither platform enabled maps to an empty `pending`.
+Do not change the control flow. Leaving the drafts unmarked is still correct.
 
 **Verify:** `pnpm typecheck && pnpm test`
 
 - [x] Task 2 complete
 
-### Task 3: The settle decision, as a pure function
+### Task 3: Say so in the README
 
 **Files:**
 
-- Create: `src/amplifier/settle.ts`
-- Create: `test/settle.test.ts`
+- Modify: `README.md`
 
-One module, two exported functions, no I/O:
+Two changes in the Slack credentials section and the Workflow service configuration table.
 
-```ts
-/** Milliseconds after which an incomplete draft gets announced anyway. */
-export function settleDeadlineMs(eventAt: string, settleMinutes: number): number;
+The section explains that with neither credential the note prints to the console. That is no longer
+true. Say that a run with no credential fails, and that this is deliberate: a run that cannot post
+must not report success.
 
-/** The still-publishing platforms of the event's draft, or [] when it is complete or absent. */
-export function pendingForDraft(posts: PublishedPost[], draftId: string): Platform[];
-```
+The `SLACK_CHANNEL` row says it needs `SLACK_BOT_TOKEN`. Add the other half: a bot token with no
+channel fails the run, so set both or use the webhook alone.
 
-`settleDeadlineMs` throws on an `eventAt` that will not parse, matching how `checkPostsImpl` already
-treats `input.now`. A deadline computed from garbage would either fire forever or never.
-
-`pendingForDraft` returns `[]` for a draft id that is not in `posts`. Absent from the window is not
-the same as incomplete, and it must not hold up a run. That happens when the event is for a draft
-outside the lookback, or for one that never published to X or LinkedIn.
-
-`test/settle.test.ts` covers: a deadline in the future, a deadline in the past, a zero
-`settleMinutes` making the deadline the event time, an unparseable `eventAt` throwing, a draft with
-one pending platform, a complete draft, and an unknown draft id.
-
-**Verify:** `pnpm typecheck && pnpm test`
+**Verify:** `pnpm format:check`
 
 - [x] Task 3 complete
 
-### Task 4: Config for the settle window
+---
+
+## Group B: announcing one post by hand
+
+This group is independent of Group A.
+
+### Task 4: Extract the announce loop
 
 **Files:**
 
-- Modify: `src/config.ts`
-- Modify: `test/config.test.ts`
+- Create: `src/amplifier/announce.ts`
+- Modify: `src/amplifier/checkPosts.ts`
 
-Add `AMPLIFIER_SETTLE_MINUTES` through the existing `whole` helper, fallback 10, min 0, no max. Zero
-turns settling off, matching how `AMPLIFIER_GROUP_WINDOW_MINUTES` treats zero. Add `settleMinutes`
-to `AmplifierConfig` and `CheckPostsInput`.
-
-Add two fields to `CheckPostsInput`, both optional so a manual dispatch with `{}` still works:
+A pure refactor, no behavior change. Move the body of the `for (const group of groups)` loop in
+`checkPostsImpl` into one exported function:
 
 ```ts
-/** ISO 8601 time the webhook event was received. Absent means do not settle. */
-eventAt?: string;
-/** Typefully draft the event was about. Absent means do not settle. */
-draftId?: string;
+export interface AnnounceOptions {
+  /** Platforms to name as dropped, and the draft whose note names them. */
+  droppedFor?: { draftId: string; platforms: Platform[] };
+}
+
+export interface AnnounceResult {
+  notes: NoteResult[];
+  /** Drafts left unannounced because another run holds the claim or already announced them. */
+  skipped: number;
+}
+
+export async function announceGroups(
+  ctx: TaskContext,
+  groups: PostGroup[],
+  config: AmplifierConfig,
+  runToken: string,
+  opts: AnnounceOptions = {},
+): Promise<AnnounceResult>;
 ```
 
-The deadline is derived from `eventAt` in the args plus `settleMinutes` from the environment, so
-every retry of a run computes the same deadline. `TaskContext` exposes no attempt number and no
-sleep, so a deadline fixed at dispatch time is the only way to make the last attempt behave
-differently from the earlier ones.
+Everything the loop does stays where it is relative to everything else: summarize before the claim,
+the dry-run log instead of the post, `markAnnounced` only after `delivered`, `releaseGroup` on both
+the throw path and the success path. Keep the comments explaining why the summary is outside the
+claim and why an undelivered note leaves the drafts unmarked — they belong to the loop, not to
+`checkPostsImpl`.
 
-Update the `loadConfig` doc comment. It currently explains the 90-minute lookback as covering a
-skipped 30-minute cron run. With the cron gone, the lookback covers the gap between the event and
-the run, plus any retry backoff, and it is wide enough that a manual re-run catches a missed post.
+`NoteResult` moves to `announce.ts` with it; `checkPosts.ts` re-exports it so no other import
+changes. `checkPostsImpl` keeps the `runToken`, builds the groups, calls `announceGroups`, and adds
+`announced.size` to the returned `skipped`.
 
-Add config cases: the default, an override, a blank variable falling back, and a negative value
-throwing.
-
-**Verify:** `pnpm typecheck && pnpm test`
+**Verify:** `pnpm typecheck && pnpm test`. Not one test may change, and the diff on
+`checkPosts.ts` must be a deletion plus one call.
 
 - [x] Task 4 complete
 
-### Task 5: The settle check inside checkPostsImpl
+### Task 5: The amplifier.announcePost task
 
 **Files:**
 
-- Modify: `src/amplifier/checkPosts.ts`
-- Create: `src/amplifier/StillPublishingError.ts`
-- Modify: `test/checkPosts.test.ts`
+- Create: `src/amplifier/announcePost.ts`
+- Create: `test/announcePost.test.ts`
+- Modify: `src/main.ts`
+- Modify: `test/main.test.ts`
 
-Insert one step into the existing sequence, after the `announcedDraftIds` read and before
-`groupPosts`. Placement matters: the check must sit after the marker read, so a draft that was
-already announced never blocks, and before `claimGroup`, so no in-flight lock is held across the
-retry backoff.
-
-```
-list -> window -> announced markers -> SETTLE CHECK -> group -> summarize -> claim -> post -> mark
-```
-
-The check runs only when `config.settleMinutes > 0` and both `input.eventAt` and `input.draftId` are
-present. When `pendingForDraft(recent, input.draftId)` is non-empty and `nowMs` is before
-`settleDeadlineMs(input.eventAt, config.settleMinutes)`, throw `StillPublishingError` carrying the
-draft id, the pending platforms, and the deadline. Past the deadline, log one line naming the
-platforms being dropped and carry on.
-
-`StillPublishingError` is its own class so `handleEvent` in Task 6 and a reader of the run logs can
-tell an expected wait from a real failure. Give it a message that reads as a wait:
-`Draft 123 is still publishing to x; retrying until 12:40:00Z`.
-
-Add to `CheckPostsResult`:
+One task that announces one post, given the URL a human has in front of them:
 
 ```ts
-/** Platforms announced without a link because the settle deadline passed. */
-droppedPlatforms: Platform[];
+export interface AnnouncePostInput {
+  /** Permalink to the live post, X or LinkedIn. Either this or draftId. */
+  url?: string;
+  /** Typefully draft id, when the URL is not to hand. */
+  draftId?: string;
+  /** Announce a draft the seen marker already records. Re-posts the note. */
+  force?: boolean;
+  dryRun?: boolean;
+  slackChannel?: string;
+}
+
+export interface AnnouncePostResult {
+  draftId: string;
+  dryRun: boolean;
+  /** Absent when the draft was already announced and force was not set. */
+  note?: NoteResult;
+  /** Set when nothing was posted, naming why. */
+  skipped?: "announced" | "claimed";
+}
 ```
 
-Add cases to `test/checkPosts.test.ts`: a pending draft before the deadline throws
-`StillPublishingError` and posts nothing; a pending draft past the deadline posts and reports
-`droppedPlatforms`; a complete draft posts on the first attempt; a pending draft that is already
-announced does not throw; an event for a draft outside the window does not throw; and
-`settleMinutes: 0` never throws. Pass `now` to pin the clock, as the existing tests do.
+The steps, in order, each one a `ctx.run` or a pure call that already exists:
 
-**Verify:** `pnpm typecheck && pnpm test`. No existing test may change, because every one of them
-calls `checkPostsImpl` without `eventAt`, which leaves the new branch inert.
+1. Reject an input with neither `url` nor `draftId`, naming both fields.
+2. `loadConfig` with `dryRun` and `slackChannel` passed through, so the channel, the call to action,
+   the summary model, and the marker TTL come from the environment exactly as they do for a webhook
+   run.
+3. `ctx.run(listPublished, { socialSetId, limit: MAX_LIMIT })`. Fifty is the widest Typefully allows
+   and this runs once, by hand.
+4. Find the post: `draftId` when given, else the one whose `links` hold a `url` equal to the input
+   URL. Compare the URL as given, and on no match throw an error saying how many published drafts
+   were searched and that the post may be older than the newest 50, or that its permalink is not on
+   X or LinkedIn.
+5. `ctx.run(kvGet, { key: seenKey(draftId) })`. With a marker and no `force`, return
+   `{ skipped: "announced" }` and log one line saying `force: true` re-posts it. With `force`,
+   `ctx.run(deleteKeys, { keys: [seenKey(draftId)] })` and log that the marker was cleared.
+6. `groupPosts([post], 0)` for the group, so a cross-posted draft still produces one note with both
+   permalinks and no neighbouring draft can join it.
+7. `announceGroups` from Task 4, with a fresh `runToken`. An in-flight claim held by another run
+   comes back as `skipped: "claimed"`, not an error: the other run is about to post the same note.
+
+No retry policy, matching `amplifier.checkPosts`. A human is watching this one, and a retry that
+re-ran step 5 after a delivered note would read its own marker and do nothing useful.
+
+Register it in `src/main.ts` next to the other two and add it to the assertions in
+`test/main.test.ts`.
+
+`test/announcePost.test.ts` reuses `taskCtx` and the `post` fixture from `test/support/`, and covers:
+a match on an X URL, a match on a LinkedIn URL, a match on `draftId`, neither field given, no
+matching draft, an already-marked draft skipping, the same draft with `force` deleting the marker and
+posting, `dryRun: true` posting nothing and writing no marker, and a refused claim reporting
+`skipped: "claimed"`.
+
+**Verify:** `pnpm typecheck && pnpm test`
 
 - [x] Task 5 complete
 
-### Task 6: The retried task the webhook dispatches
+### Task 6: Document both manual paths
 
 **Files:**
 
-- Create: `src/amplifier/handleEvent.ts`
-- Modify: `src/main.ts`
-- Create: `test/handleEvent.test.ts`
-- Modify: `test/main.test.ts`
+- Modify: `README.md`
 
-`amplifier.checkPosts` stays registered with no retry, so a manual dispatch and
-`scripts/local-run.ts` keep behaving as they do now. The retry policy lives on a separate task for the
-webhook path:
+Replace `### Manual re-run` with `### Posting a note by hand`, holding two subsections.
 
-```ts
-export const handleEvent = task(
-  {
-    name: "amplifier.handleEvent",
-    retry: { maxRetries: 4, waitDurationMs: 60_000, backoffScaling: 2 },
-  },
-  handleEventImpl,
-);
+**One post.** The common case, and now one command. Give the X URL example:
+
+```bash
+render workflows start <slug>/amplifier.announcePost \
+  --input='[{"url":"https://x.com/render/status/2097716776390058019"}]'
 ```
 
-Four retries at 1m, 2m, 4m, and 8m give a 15-minute settle budget against a 10-minute deadline, so
-the deadline ends the wait and the retry count is only the ceiling. Keep that relationship
-in a comment: raising `AMPLIFIER_SETTLE_MINUTES` past 15 makes the retries run out first, and the
-event is then lost with no note.
+Say that the Dashboard route is the same task from the Workflow service's Tasks tab, pasting the
+same JSON array, and that the array is the task's positional arguments, so a single object in an
+array is the shape. Then a four-row table for `url`, `draftId`, `force`, and `dryRun`, one line each:
+the permalink to the live post, either platform; the Typefully draft id instead; re-post a draft
+already announced; log the note instead of posting it. Add that `dryRun: true` prints the note after
+`[dry run] would post:` in the run's logs and writes no marker, so the real run still has it to
+announce.
 
-`handleEventImpl` calls `checkPostsImpl` directly rather than through `ctx.run`, so it adds no
-second dispatch and no second poll interval. It exists to carry the retry policy and to give the
-webhook path its own name in the dashboard.
+Say what it cannot do: only the newest 50 published drafts are searched, so a post from weeks ago
+needs its `draftId`.
 
-One retry-safety property to keep intact, and to assert in the tests: a retry that follows a
-successful Slack post does not double-post, because `markAnnounced` writes the seen marker after
-delivery and the retry's `announcedDraftIds` read drops the draft. The existing `catch` around the
-post already calls `releaseGroup` before rethrowing, so a retry does not collide with its own
-predecessor's lock.
+**A whole window.** Keep the existing `amplifier.checkPosts` command with `[{}]` for the case where
+several posts were missed at once, and keep the sentence about the 90-minute lookback and the markers
+meaning it announces what was missed and nothing else. Do not document `now`, `lookbackMinutes`, or
+`groupWindowMinutes` here; they are in the Configuration table and `amplifier.announcePost` is the
+reason nobody needs them by hand.
 
-Import the module in `src/main.ts` so the task registers, and add it to the registration assertions
-in `test/main.test.ts`.
-
-`test/handleEvent.test.ts` covers: a throw on the first attempt followed by a successful second
-attempt against a Typefully fake whose second response carries the missing permalink, and a second
-call after a delivered post announcing nothing.
-
-**Verify:** `pnpm typecheck && pnpm test`
+**Verify:** `pnpm format:check`, and both commands run against the deployed service.
 
 - [x] Task 6 complete
 
 ---
 
-## Group C: the receiver
+## Group C: one default for the per-run limit
 
-Every task in this group needs the answer from Task 1.
+This group is independent of Groups A and B.
 
-### Task 7: The Typefully webhook adapter
+### Task 7: Give the limit and the social set one source each
 
 **Files:**
 
-- Create: `src/typefully/webhook.ts`
-- Create: `test/webhook.test.ts`
+- Modify: `src/config.ts`
+- Modify: `src/typefully/listPublished.ts`
+- Modify: `src/typefully/types.ts`
+- Modify: `test/listPublished.test.ts`
 
-Export one factory:
-
-```ts
-export function typefullyWebhook(opts?: { env?: NodeJS.ProcessEnv; now?: () => Date }): WebhookAdapter;
-```
-
-`verify` implements whatever Task 1 established, reading `TYPEFULLY_WEBHOOK_SECRET` from the env on
-each call rather than at import, matching how `typefullyPort` reads its API key. A missing secret
-returns false, so an unconfigured receiver rejects deliveries instead of answering 500 to every
-one of them. Compare with `timingSafeEqual`.
-
-`map` returns null for every event except the published one. No other event can produce a note. A draft created, scheduled, deleted, or re-tagged changes nothing amplify cares
-about, and the server answers those 204. Read the event type from wherever Task 1 found it, and
-return null on an unrecognized type rather than treating it as published, so a new Typefully event
-does not start a run.
-
-For a published event, return:
+Export the fallback from `config.ts` next to `MAX_LIMIT`:
 
 ```ts
-{ task: "amplifier.handleEvent", args: [{ draftId, eventAt: now().toISOString() }] }
+/** Drafts pulled per run when nothing overrides it. Also listPublished's own fallback. */
+export const DEFAULT_LIMIT = 25;
 ```
 
-`eventAt` is stamped at receipt rather than read from the payload. The receiver controls it, it is
-stable across every retry of the run because it lives in the args, and it does not depend on
-Typefully reporting a timestamp. `now` is injectable so the test can pin it.
+Use it as the `fallback` in the `AMPLIFIER_LIMIT` call to `whole`, and as the `input.limit` fallback
+in `listPublishedImpl`. Update the `limit` comment in `ListPublishedInput`, which hardcodes 25 in
+prose.
 
-Omit `draftId` when the payload has no id. The settle check in Task 5 needs both fields, so a
-payload without an id becomes a plain window rescan.
+While in `listPublishedImpl`, take the environment as a parameter instead of reading `process.env`
+inside the function:
 
-`test/webhook.test.ts` is table-driven over the six event types plus one unrecognized type, and
-covers a valid signature, an invalid signature, a missing secret, a body that is not the expected
-shape, and a published event with no draft id. Build the requests from
-`test/support/typefully-event.json` so the fixture and the adapter cannot drift.
+```ts
+export async function listPublishedImpl(
+  _ctx: TaskContext,
+  input: ListPublishedInput,
+  deps: TypefullyDeps = defaultDeps,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ListPublishedResult>;
+```
+
+Env last with a default, matching `checkPostsImpl` and `postNoteImpl`. The task registration and
+every caller stay as they are; `checkPostsImpl` already passes `socialSetId` from `loadConfig`, so
+the environment fallback only serves a manual dispatch of `typefully.listPublished`.
+
+Add one test passing an env with `TYPEFULLY_SOCIAL_SET_ID` and asserting the port was called with it.
+The existing "throws with no social set" case keeps working by passing an empty env.
 
 **Verify:** `pnpm typecheck && pnpm test`
 
 - [x] Task 7 complete
-
-### Task 8: The receiver entry point
-
-**Files:**
-
-- Create: `src/webhook-server.ts`
-- Delete: `src/cron-trigger.ts`
-- Modify: `package.json`
-
-`src/webhook-server.ts` replaces `src/cron-trigger.ts` as the trigger entry point:
-
-```ts
-serveDispatchServer({ webhooks: { typefully: typefullyWebhook() } });
-```
-
-`workflowSlug` and the dispatcher default to `WORKFLOW_SLUG` and the Render SDK, and the port
-defaults to `$PORT`, so nothing else needs passing. Open the file with a comment saying what the
-service is, the same way `cron-trigger.ts` does: a separate Render web service, not the Workflow,
-whose only job is to verify a delivery and start a run.
-
-If Task 1 concluded that Typefully sends nothing verifiable, mount the adapter under the
-random-suffixed name instead of `typefully`, read from `TYPEFULLY_WEBHOOK_PATH`, and say in the
-comment that the path is the secret.
-
-Replace the `trigger:cron` script with `trigger:serve`, running `node dist/webhook-server.js`.
-
-**Verify:** `pnpm build`, then `PORT=3000 WORKFLOW_SLUG=x TYPEFULLY_WEBHOOK_SECRET=y node dist/webhook-server.js`
-answers `ok` on `GET /healthz` and 401 on an unsigned `POST /webhooks/typefully`.
-
-- [x] Task 8 complete
-
-### Task 9: A local way to fire an event
-
-**Files:**
-
-- Create: `scripts/webhook-post.ts`
-- Modify: `package.json`
-
-`scripts/local-run.ts` proves the announce-once guarantee without deploying. Nothing yet proves the
-receiver, so add the equivalent: a script that signs `test/support/typefully-event.json` with
-`TYPEFULLY_WEBHOOK_SECRET` and POSTs it to a locally running `webhook-server`.
-
-Take the draft id as an optional argument so the event can be pointed at whatever the stub in
-`scripts/typefully-stub.ts` serves. Print the response status and body, and say in the header
-comment that a 202 proves the signature and the mapping, while the run itself is the Workflow
-service's business.
-
-Add a `webhook:post` script.
-
-**Verify:** With `redis-server`, `pnpm stub`, and the built receiver running, `pnpm webhook:post`
-answers 202, and the same command with a wrong secret answers 401.
-
-- [x] Task 9 complete
-
----
-
-## Group D: infrastructure
-
-### Task 10: Swap the cron service for a web service in the Blueprint
-
-**Files:**
-
-- Modify: `render.yaml`
-
-Replace the `amplifier-cron` cron service with:
-
-```yaml
-- type: web
-  name: amplifier-webhook
-  runtime: node
-  plan: starter
-  region: oregon
-  buildCommand: pnpm install && pnpm build
-  startCommand: node dist/webhook-server.js
-  healthCheckPath: /healthz
-  autoDeployTrigger: commit
-  envVars:
-    - fromGroup: amplifier-triggers
-```
-
-Keep the plan at starter and the region at oregon, matching the Key Value instance and the
-hand-created Workflow service.
-
-In the `amplifier-triggers` group, keep `RENDER_API_KEY` and `WORKFLOW_SLUG`, both still
-`sync: false`. Drop `CRON_TASK` and `CRON_INPUT`, which only the cron helper read. Add
-`TYPEFULLY_WEBHOOK_SECRET` with `sync: false`, because it comes from the Typefully dashboard.
-
-Do not add `DISPATCH_TOKEN`. It gates `POST /tasks/:task`, which nothing in amplifier uses. Leaving
-it unset makes that route answer 401 to everything. Say so in a
-comment, so the next reader does not add the variable to make a route work that should stay shut.
-
-Rewrite the file's opening comment. It currently describes a cron service that starts runs; it now
-describes a web service that receives Typefully deliveries. Keep the ordering note about creating
-the Workflow service first and copying the Key Value connection string into `REDIS_URL`, and add
-the new last step: register the receiver's public URL in Typefully under Settings > API.
-
-**Verify:** `render blueprints validate` if the CLI is available. Otherwise confirm by reading that
-every referenced env group exists, no service references a deleted variable, and
-`grep -n "cron" render.yaml` returns nothing.
-
-- [x] Task 10 complete
-
-### Task 11: Remove the cron from the environment example
-
-**Files:**
-
-- Modify: `.env.example`
-
-Rename the last section from "trigger layer (@render-lab/triggers): the cron service only" to name
-the receiver. Drop `CRON_TASK` and `CRON_INPUT`. Add `TYPEFULLY_WEBHOOK_SECRET` and `PORT`, with
-`PORT` noted as set by Render in production and only needed locally.
-
-Add `AMPLIFIER_SETTLE_MINUTES=10` to the amplifier config block, commented out like its neighbours,
-with a one-line note that it must stay under the retry budget from Task 6.
-
-Fix the comment on `AMPLIFIER_LOOKBACK_MINUTES`, which says "wider than the 30-minute schedule, so a
-skipped run still catches up". There is no schedule now.
-
-`AMPLIFIER_LIMIT` says "max 100". `MAX_LIMIT` is 50, and `bbf7288` capped it there because Typefully
-rejects more with a 422. Correct the number while in the file.
-
-**Verify:** Every variable in `.env.example` appears in `src/`, `scripts/`, or `render.yaml`, and
-every variable those read appears in `.env.example`.
-
-- [x] Task 11 complete
-
-### Task 12: Point local-run at the right explanation
-
-**Files:**
-
-- Modify: `scripts/local-run.ts`
-
-The header says two runs prove the announce-once guarantee "across runs". That is still true and
-still worth running. Add one sentence: the same guarantee makes the Task 6 retry safe,
-because a retry after a delivered note reads the seen marker and announces nothing.
-
-Do not change what the script does. It calls `checkPostsImpl` with no `eventAt`, so the settle
-branch stays inert, so it checks the announce-once behavior on its own.
-
-**Verify:** `redis-server &`, `pnpm stub &`, `pnpm local:run 2` still reports `notified: 2` then
-`notified: 0` with `skipped: 2`.
-
-- [x] Task 12 complete
-
----
-
-## Group E: documentation
-
-### Task 13: Redraw the architecture diagram
-
-**Files:**
-
-- Modify: `README.md`
-
-The diagram opens with "every 30 min" feeding `amplifier-cron`. Replace the trigger with the
-receiver and add the settle step:
-
-```
-   post goes live
-         │
-         ▼
-┌────────────────────┐   POST         ┌──────────────────────────┐
-│ Typefully          │ ─────────────▶ │ amplifier-webhook        │
-│ Settings > API     │  /webhooks/    │ web service              │
-└────────────────────┘   typefully    └────────────┬─────────────┘
-                                       verify, map │ dispatch
-                                                   ▼
-                                      ┌──────────────────────────┐
-                                      │ amplifier (Workflow)     │
-                                      │ amplifier.handleEvent    │
-                                      └────────────┬─────────────┘
-  1  typefully.listPublished ─────────────────────┼──▶ Typefully API
-  2  withinWindow, then announcedDraftIds ────────┼──▶ amplifier-kv
-  3  settle check: throw while a platform is pending
-  4  groupPosts                                   │
-  5  llm.complete ────────────────────────────────┼──▶ Anthropic
-  6  claimGroup, one kv.lock per draft ───────────┼──▶ amplifier-kv
-  7  amplifier.postNote ──────────────────────────┼──▶ Slack #amplify
-  8  markAnnounced, then releaseGroup ────────────┴──▶ amplifier-kv
-```
-
-Renumber the prose list under it to match, and rewrite its opening sentence, which currently says a
-cron job runs every 30 minutes. Say instead that Typefully posts to the receiver when a draft
-publishes, the receiver verifies the delivery and starts `amplifier.handleEvent`, and that task
-retries at 1m, 2m, 4m, and 8m while a platform is still publishing.
-
-Check the box-drawing characters render in a fixed-width font before committing. No emoji, no color.
-
-**Verify:** Read the rendered README and confirm the diagram lines up. Every task name in it exists
-in `src/`.
-
-- [x] Task 13 complete
-
-### Task 14: Rewrite deployment for the receiver
-
-**Files:**
-
-- Modify: `README.md`
-
-Four changes.
-
-The intro says the button's `render.yaml` covers "the cron job, the Key Value instance, and the env
-groups". It now covers the web service instead of the cron job.
-
-The deployment steps need the new last step: copy the receiver's `onrender.com` URL, add
-`/webhooks/typefully` to it, and register that in Typefully under Settings > API, then copy the
-signing secret back into `TYPEFULLY_WEBHOOK_SECRET` on the receiver. Give the order explicitly,
-because the secret does not exist until the webhook is registered.
-
-Add a short "Manual re-run" section. The webhook is the only trigger, so a dropped delivery needs a
-human. Give the command that starts `amplifier.checkPosts` with an empty input, and say that the
-90-minute lookback plus the seen markers mean a re-run announces what was missed and nothing else.
-Check the invocation against `render workflows --help` before writing it.
-
-Add a "Security" section, three sentences: the receiver's URL is public, `verify` is the only thing
-gating it, and `POST /tasks/:task` stays shut because `DISPATCH_TOKEN` is unset. If Task 1 concluded
-that Typefully sends nothing verifiable, say that the path segment is the secret and that the URL
-must not be shared.
-
-**Verify:** `pnpm format:check`. Every command in the section runs.
-
-- [x] Task 14 complete
-
-### Task 15: Update the configuration table and the plan reference
-
-**Files:**
-
-- Modify: `README.md`
-- Modify: `.prettierignore`
-
-In the README, add `AMPLIFIER_SETTLE_MINUTES` to the Workflow service table, default 10. Rename the
-`### Cron service` table to name the receiver, drop `CRON_TASK` and `CRON_INPUT`, and add
-`TYPEFULLY_WEBHOOK_SECRET`. Check every remaining default against `loadConfig` while in the table.
-
-`.prettierignore` line 3 reads "The working cleanup plan, kept as it was written." Say instead that
-`plan.md` is the working plan, hand-wrapped, and leave it ignored.
-
-**Verify:** `pnpm format:check`, and each row's default matches the `fallback` value in `loadConfig`.
-
-- [x] Task 15 complete
 
 ---
 
@@ -608,14 +342,18 @@ In the README, add `AMPLIFIER_SETTLE_MINUTES` to the Workflow service table, def
 
 ```bash
 pnpm check
-grep -rn "cron\|CRON" src/ render.yaml .env.example package.json
+grep -rn "SLACK_WEBHOOK_URL\|SLACK_BOT_TOKEN" src/
+grep -rn "markAnnounced\|claimGroup" src/
+grep -rn "25" src/config.ts src/typefully/listPublished.ts
 git diff --stat
 ```
 
-The grep must return nothing outside a comment explaining what the cron used to do. Test count must
-be at least 134 plus the cases added in Tasks 2, 3, 4, 5, 6, and 7.
+The only place that decides whether Slack is configured must be `src/slack/postNote.ts`. The claim
+and the marker write must appear only in `src/amplifier/announce.ts`, which is what makes the two
+entry points share one announce-once guarantee. 25 must appear once, in `DEFAULT_LIMIT`.
 
-Then confirm the two properties this plan must not break, using `pnpm local:run 2`: the first run
-reports `notified: 2` and the second reports `notified: 0` with `skipped: 2`.
+Then confirm the two properties this plan must not break, using `redis-server`, `pnpm stub`, and
+`pnpm local:run 2`: the first run reports `notified: 2` and the second reports `notified: 0` with
+`skipped: 2`.
 
 - [x] All tasks complete
