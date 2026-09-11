@@ -2,38 +2,31 @@ import { describe, expect, it, vi } from "vitest";
 import type { TaskContext } from "@renderinc/sdk/workflows";
 import { announcePostImpl, type AnnouncePostInput } from "../src/amplifier/announcePost.js";
 import { post } from "./support/fixtures.js";
-import { taskCtx, type TaskHandlers } from "./support/taskCtx.js";
+import { runCtx } from "./support/handlers.js";
+import type { TaskHandlers } from "./support/taskCtx.js";
 
 const X_POST = post("1", "2026-09-04T15:30:00Z", ["x"]);
 const LI_POST = post("2", "2026-09-04T15:35:00Z", ["linkedin"]);
 
-/** ctx.run dispatched by task name, with sensible defaults per task. */
-function runCtx(overrides: TaskHandlers = {}) {
-  return taskCtx({
+/** A context with both fixture posts published, which every test here wants. */
+function ctxFor(overrides: TaskHandlers = {}) {
+  return runCtx({
     "typefully.listPublished": () => ({ posts: [X_POST, LI_POST] }),
-    "kv.lock": () => ({ acquired: true }),
-    "kv.unlock": () => ({ released: true }),
-    "kv.get": () => ({ value: null }),
-    "kv.set": () => ({ ok: true }),
-    "kv.delete": () => ({ deleted: 1 }),
-    "amplifier.postNote": () => ({ delivered: true }),
-    "llm.complete": () => ({
-      text: "Something shipped. Please amplify!",
-      model: "m",
-      stopReason: "end",
-    }),
     ...overrides,
   });
 }
 
-/** Run with an empty environment, so a developer's shell cannot change a result. */
+/**
+ * Run with only the social set in the environment, so a developer's shell
+ * cannot reach loadConfig and change a result.
+ */
 function announce(ctx: TaskContext, input: AnnouncePostInput) {
   return announcePostImpl(ctx, input, { TYPEFULLY_SOCIAL_SET_ID: "set_1" });
 }
 
 describe("announcePostImpl", () => {
   it("announces the post an X URL names", async () => {
-    const { ctx, calls } = runCtx();
+    const { ctx, calls } = ctxFor();
 
     const result = await announce(ctx, { url: "https://example.com/x/1" });
 
@@ -43,7 +36,7 @@ describe("announcePostImpl", () => {
   });
 
   it("announces the post a LinkedIn URL names", async () => {
-    const { ctx } = runCtx();
+    const { ctx } = ctxFor();
 
     const result = await announce(ctx, { url: "https://example.com/linkedin/2" });
 
@@ -52,7 +45,7 @@ describe("announcePostImpl", () => {
   });
 
   it("announces the post a draftId names", async () => {
-    const { ctx } = runCtx();
+    const { ctx } = ctxFor();
 
     const result = await announce(ctx, { draftId: "2" });
 
@@ -61,7 +54,7 @@ describe("announcePostImpl", () => {
   });
 
   it("pulls the widest limit Typefully allows", async () => {
-    const { ctx, calls } = runCtx();
+    const { ctx, calls } = ctxFor();
 
     await announce(ctx, { draftId: "1" });
 
@@ -70,13 +63,13 @@ describe("announcePostImpl", () => {
   });
 
   it("throws with neither url nor draftId", async () => {
-    const { ctx } = runCtx();
+    const { ctx } = ctxFor();
 
     await expect(announce(ctx, {})).rejects.toThrow(/url.*draftId/s);
   });
 
   it("throws when no published draft matches", async () => {
-    const { ctx, calls } = runCtx();
+    const { ctx, calls } = ctxFor();
 
     await expect(announce(ctx, { url: "https://example.com/x/99" })).rejects.toThrow(
       /No published draft matches/,
@@ -87,7 +80,7 @@ describe("announcePostImpl", () => {
   it("skips a draft the marker already records", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
-      const { ctx, calls } = runCtx({ "kv.get": () => ({ value: "announced" }) });
+      const { ctx, calls } = ctxFor({ "kv.get": () => ({ value: "announced" }) });
 
       const result = await announce(ctx, { draftId: "1" });
 
@@ -104,7 +97,7 @@ describe("announcePostImpl", () => {
       // The marker read before the claim sees it; claimGroup's re-read runs
       // after kv.delete, so it must not.
       let reads = 0;
-      const { ctx, calls } = runCtx({
+      const { ctx, calls } = ctxFor({
         "kv.get": () => ({ value: reads++ === 0 ? "announced" : null }),
       });
 
@@ -123,7 +116,7 @@ describe("announcePostImpl", () => {
   it("posts nothing and writes no marker in a dry run", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
-      const { ctx, calls } = runCtx();
+      const { ctx, calls } = ctxFor();
 
       const result = await announce(ctx, { draftId: "1", dryRun: true });
 
@@ -137,7 +130,7 @@ describe("announcePostImpl", () => {
   });
 
   it("reports a refused claim instead of throwing", async () => {
-    const { ctx, calls } = runCtx({ "kv.lock": () => ({ acquired: false }) });
+    const { ctx, calls } = ctxFor({ "kv.lock": () => ({ acquired: false }) });
 
     const result = await announce(ctx, { draftId: "1" });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_REPOST_EMOJI, loadConfig, MAX_LIMIT } from "../src/config.js";
 import { MAX_SETTLE_MINUTES } from "../src/amplifier/retry.js";
 import { DEFAULT_CALL_TO_ACTION } from "../src/amplifier/template.js";
+import { DEFAULT_REPOST_EMOJI, loadConfig, MAX_LIMIT } from "../src/config.js";
 import { DEFAULT_SUMMARY_MODEL } from "../src/summary/model.js";
 
 describe("loadConfig", () => {
@@ -160,6 +160,7 @@ describe("loadConfig", () => {
       `AMPLIFIER_LIMIT must be a whole number between 1 and ${MAX_LIMIT}`,
     );
   });
+
   it("defaults the summary model to the newest Sonnet", () => {
     expect(loadConfig({}, {}).summaryModel).toBe("anthropic/claude-sonnet-5");
   });

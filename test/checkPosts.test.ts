@@ -5,28 +5,11 @@ import { StillPublishingError } from "../src/amplifier/settle.js";
 import type { CheckPostsInput } from "../src/config.js";
 import type { PublishedPost } from "../src/typefully/types.js";
 import { post } from "./support/fixtures.js";
-import { taskCtx, type TaskHandlers } from "./support/taskCtx.js";
+import { runCtx, SUMMARY_LINE } from "./support/handlers.js";
+import { kvStore, type KvStore } from "./support/kvStore.js";
+import type { TaskHandlers } from "./support/taskCtx.js";
 
 const NOW = "2026-09-04T16:00:00Z";
-
-/** ctx.run dispatched by task name, with sensible defaults per task. */
-function runCtx(overrides: TaskHandlers = {}) {
-  return taskCtx({
-    "typefully.listPublished": () => ({ posts: [] }),
-    "kv.lock": () => ({ acquired: true }),
-    "kv.unlock": () => ({ released: true }),
-    "kv.get": () => ({ value: null }),
-    "kv.set": () => ({ ok: true }),
-    // A ts, because announceGroups needs one to thread the replies under.
-    "amplifier.postNote": () => ({ delivered: true, ts: "17580000.001" }),
-    "llm.complete": () => ({
-      text: "Something shipped. Please amplify!",
-      model: "m",
-      stopReason: "end",
-    }),
-    ...overrides,
-  });
-}
 
 const BASE = { now: NOW, dryRun: false, socialSetId: "set_1", slackChannel: "social" };
 
@@ -373,72 +356,31 @@ describe("checkPostsImpl", () => {
 });
 
 /**
- * A Map-backed fake Key Value, shared across runs, with a virtual clock so TTLs
- * expire the way a real instance's do. This is what lets a test represent state
- * an earlier run left behind.
+ * Handlers for a run against a shared Key Value, recording the note markdown of
+ * every Slack post the run made.
  */
-function kvStore(startMs: number) {
-  const store = new Map<string, { value: string; expiresAtMs: number }>();
-  let nowMs = startMs;
-
-  function live(key: string) {
-    const entry = store.get(key);
-    if (!entry) return undefined;
-    if (entry.expiresAtMs <= nowMs) {
-      store.delete(key);
-      return undefined;
-    }
-    return entry;
-  }
-
-  const handlers: TaskHandlers = {
-    "kv.lock": ({ key, token, ttlSeconds }) => {
-      if (live(key)) return { acquired: false };
-      store.set(key, { value: token, expiresAtMs: nowMs + ttlSeconds * 1000 });
-      return { acquired: true };
-    },
-    "kv.unlock": ({ key, token }) => {
-      const entry = live(key);
-      if (!entry || entry.value !== token) return { released: false };
-      store.delete(key);
-      return { released: true };
-    },
-    "kv.get": ({ key }) => ({ value: live(key)?.value ?? null }),
-    "kv.set": ({ key, value, ttlSeconds }) => {
-      const expiresAtMs = ttlSeconds ? nowMs + ttlSeconds * 1000 : Number.POSITIVE_INFINITY;
-      store.set(key, { value, expiresAtMs });
-      return { ok: true };
-    },
-  };
-
+function sharedKvHandlers(kv: KvStore, posts: PublishedPost[], slackLog: string[]): TaskHandlers {
   return {
-    handlers,
-    at(iso: string) {
-      nowMs = Date.parse(iso);
-    },
-    keys() {
-      return [...store.keys()].sort();
+    ...kv.handlers,
+    "typefully.listPublished": () => ({ posts }),
+    "amplifier.postNote": (input) => {
+      slackLog.push(String(input.markdown));
+      return { delivered: true };
     },
   };
 }
 
 /** A run against a shared Key Value, recording the Slack posts it made. */
-function runAt(kv: ReturnType<typeof kvStore>, posts: PublishedPost[], slackLog: string[][]) {
-  kv.handlers["typefully.listPublished"] = () => ({ posts });
-  kv.handlers["amplifier.postNote"] = (input) => {
-    slackLog.push([String(input.markdown)]);
-    return { delivered: true };
-  };
-  return runCtx(kv.handlers);
+function runAt(kv: KvStore, posts: PublishedPost[], slackLog: string[]) {
+  return runCtx(sharedKvHandlers(kv, posts, slackLog));
 }
 
 describe("checkPostsImpl across two runs with one Key Value", () => {
   it("announces a post once across two runs in the same window", async () => {
-    const kv = kvStore(Date.parse("2026-09-04T15:45:00Z"));
-    const slack: string[][] = [];
+    const kv = kvStore("2026-09-04T15:45:00Z");
+    const slack: string[] = [];
     const posts = [post("A", "2026-09-04T15:30:00Z", ["x"])];
 
-    kv.at("2026-09-04T15:45:00Z");
     const run1 = await checkPostsImpl(runAt(kv, posts, slack).ctx, {
       ...BASE,
       now: "2026-09-04T15:45:00Z",
@@ -457,12 +399,11 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
   });
 
   it("announces a draft that joins an already-announced group", async () => {
-    const kv = kvStore(Date.parse("2026-09-04T15:45:00Z"));
-    const slack: string[][] = [];
+    const kv = kvStore("2026-09-04T15:45:00Z");
+    const slack: string[] = [];
     const a = post("A", "2026-09-04T15:30:00Z", ["x"]);
     const b = post("B", "2026-09-04T15:35:00Z", ["linkedin"]);
 
-    kv.at("2026-09-04T15:45:00Z");
     const run1 = await checkPostsImpl(runAt(kv, [a], slack).ctx, {
       ...BASE,
       now: "2026-09-04T15:45:00Z",
@@ -480,8 +421,8 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
   });
 
   it("posts once when a second run's marker read precedes the first run's announce cycle", async () => {
-    const kv = kvStore(Date.parse("2026-09-04T15:45:00Z"));
-    const slack: string[][] = [];
+    const kv = kvStore("2026-09-04T15:45:00Z");
+    const slack: string[] = [];
     const posts = [post("A", "2026-09-04T15:30:00Z", ["x"])];
 
     // Run B reads the announced markers, finds none, and only then reaches its
@@ -489,8 +430,8 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
     let interleaved = false;
     const lockHandler = kv.handlers["kv.lock"];
     const handlers: TaskHandlers = {
-      ...kv.handlers,
-      "kv.lock": async (input: any) => {
+      ...sharedKvHandlers(kv, posts, slack),
+      "kv.lock": async (input) => {
         if (!interleaved) {
           interleaved = true;
           await checkPostsImpl(runAt(kv, posts, slack).ctx, {
@@ -500,11 +441,6 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
         }
         return lockHandler?.(input);
       },
-    };
-    handlers["typefully.listPublished"] = () => ({ posts });
-    handlers["amplifier.postNote"] = (input: any) => {
-      slack.push([String(input.markdown)]);
-      return { delivered: true };
     };
 
     const runB = await checkPostsImpl(runCtx(handlers).ctx, {
@@ -518,11 +454,10 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
   });
 
   it("retries after a run crashes between the lock and the Slack post", async () => {
-    const kv = kvStore(Date.parse("2026-09-04T15:45:00Z"));
-    const slack: string[][] = [];
+    const kv = kvStore("2026-09-04T15:45:00Z");
+    const slack: string[] = [];
     const posts = [post("A", "2026-09-04T15:30:00Z", ["x"])];
 
-    kv.at("2026-09-04T15:45:00Z");
     const crashing = runCtx({
       ...kv.handlers,
       "typefully.listPublished": () => ({ posts }),
@@ -545,6 +480,9 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
     expect(run2.notified).toBe(1);
     expect(slack).toHaveLength(1);
   });
+});
+
+describe("the note's summary", () => {
   it("leads the note with the summary", async () => {
     const { ctx, calls } = runCtx({
       "typefully.listPublished": () => ({
@@ -555,7 +493,7 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
     const result = await check(ctx, BASE);
 
     const parent = calls.find((c) => c.name === "amplifier.postNote")?.input;
-    expect(parent.blocks[0].text.text).toBe("Something shipped. Please amplify! 🧵");
+    expect(parent.blocks[0].text.text).toBe(`${SUMMARY_LINE} 🧵`);
     expect(result.notes[0]?.summarized).toBe(true);
   });
 

@@ -1,7 +1,14 @@
 import { fakeCtx } from "@render-lab/test-utils";
 import type { TaskContext, TaskDefinition } from "@renderinc/sdk/workflows";
 
-/** Fake task implementations, keyed by task name. */
+/**
+ * Fake task implementations, keyed by task name.
+ *
+ * `input` is `any` on purpose. Handlers stand in for tasks of unrelated
+ * signatures dispatched through one `run`, so the type would have to be keyed
+ * on each task's own input to say anything true. Typing it `unknown` instead
+ * would only move the narrowing into every handler in every test.
+ */
 export type TaskHandlers = Record<string, (input: any) => unknown>;
 
 /** One `ctx.run` call: the task's name and the input it received. */
