@@ -12,9 +12,10 @@ describe("ping", () => {
 describe("task registration", () => {
   const names = TaskRegistry.getInstance().getAllTaskNames();
 
-  it("registers the two entry tasks", () => {
+  it("registers the three entry tasks", () => {
     expect(names).toContain("amplifier.checkPosts");
     expect(names).toContain("amplifier.handleEvent");
+    expect(names).toContain("amplifier.announcePost");
   });
 
   it("registers the tasks they compose", () => {
@@ -27,6 +28,7 @@ describe("task registration", () => {
         "kv.unlock",
         "kv.get",
         "kv.set",
+        "kv.delete",
       ]),
     );
   });
