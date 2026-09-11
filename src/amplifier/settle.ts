@@ -36,8 +36,8 @@ export function pendingForDraft(posts: PublishedPost[], draftId: string): Platfo
  * Thrown while a draft's publish is still in flight, so the task's retry
  * re-reads Typefully a minute later.
  *
- * Its own class so `handleEventImpl` and a reader of the run logs can tell an
- * expected wait from a real failure.
+ * Its own class so `amplifier.handleEvent` and a reader of the run logs can
+ * tell an expected wait from a real failure.
  */
 export class StillPublishingError extends Error {
   constructor(

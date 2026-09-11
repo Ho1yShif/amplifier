@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { handleEventImpl } from "../src/amplifier/handleEvent.js";
+import { handleEvent } from "../src/amplifier/handleEvent.js";
 import { StillPublishingError } from "../src/amplifier/settle.js";
 import type { CheckPostsInput } from "../src/config.js";
 import type { PublishedPost } from "../src/typefully/types.js";
 import { post } from "./support/fixtures.js";
-import { taskCtx, type TaskHandlers } from "./support/taskCtx.js";
+import { runCtx } from "./support/handlers.js";
+import { kvStore } from "./support/kvStore.js";
 
 const EVENT_AT = "2026-09-04T15:30:00Z";
 const BASE = { dryRun: false, slackChannel: "social", eventAt: EVENT_AT, draftId: "1" };
@@ -14,35 +15,23 @@ const stillPublishing: PublishedPost[] = [post("1", EVENT_AT, ["linkedin"], { pe
 const complete: PublishedPost[] = [post("1", EVENT_AT, ["linkedin", "x"])];
 
 /**
- * A Map-backed Key Value plus a Slack log, both shared across attempts, so a
- * retry sees the markers its predecessor wrote.
+ * A Key Value plus a Slack log, both shared across attempts, so a retry sees
+ * the markers its predecessor wrote. The clock never moves, so nothing an
+ * attempt wrote expires before the next one reads it.
  *
  * Parents and replies are logged separately, because a cross-post is one note
  * made of three messages and "how many notes went out" is what the tests check.
  */
 function attempts() {
-  const store = new Map<string, string>();
+  const kv = kvStore(EVENT_AT);
   const slack: string[] = [];
   const replies: string[] = [];
   let ts = 0;
 
   function ctxFor(posts: PublishedPost[]) {
-    const handlers: TaskHandlers = {
+    return runCtx({
+      ...kv.handlers,
       "typefully.listPublished": () => ({ posts }),
-      "kv.lock": ({ key, token }) => {
-        if (store.has(key)) return { acquired: false };
-        store.set(key, token);
-        return { acquired: true };
-      },
-      "kv.unlock": ({ key }) => {
-        store.delete(key);
-        return { released: true };
-      },
-      "kv.get": ({ key }) => ({ value: store.get(key) ?? null }),
-      "kv.set": ({ key, value }) => {
-        store.set(key, value);
-        return { ok: true };
-      },
       "amplifier.postNote": (input) => {
         if (input.threadTs) {
           replies.push(String(input.markdown));
@@ -51,21 +40,19 @@ function attempts() {
         slack.push(String(input.markdown ?? input.blocks?.[0]?.text?.text));
         return { delivered: true, ts: `17580000.00${(ts += 1)}` };
       },
-      "llm.complete": () => ({ text: "Something shipped.", model: "m", stopReason: "end" }),
-    };
-    return taskCtx(handlers).ctx;
+    }).ctx;
   }
 
   return {
     slack,
     replies,
-    keys: () => [...store.keys()].sort(),
+    keys: kv.keys,
     run: (posts: PublishedPost[], input: CheckPostsInput) =>
-      handleEventImpl(ctxFor(posts), { ...BASE, ...input }, {}),
+      handleEvent.func(ctxFor(posts), { ...BASE, ...input }, {}),
   };
 }
 
-describe("handleEventImpl", () => {
+describe("amplifier.handleEvent", () => {
   it("throws on the first attempt, then announces once X reports its permalink", async () => {
     const a = attempts();
 
