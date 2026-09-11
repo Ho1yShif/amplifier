@@ -144,7 +144,7 @@ region Oregon, built from `main`.
 5. Apply `render.yaml`, with the Deploy to Render button above or from the Dashboard, to create the `amplifier-webhook` service and the Key Value instance, and to link `amplifier-triggers` to the receiver. The apply asks for no values, because step 4 set them all.
 6. Confirm `amplifier-kv` landed in region Oregon. `render.yaml` names Oregon, so it should. The Workflow service reaches it over the private network as long as both are in Oregon in the same workspace; the project and the environment do not have to match.
 7. On the Workflow service, link the `amplifier-workflow` env group. The group holds every variable the Workflow service reads, and it is linked in the Dashboard because Blueprints do not support Workflow services, so `render.yaml` cannot reference it.
-8. Add `REDIS_URL` to `amplifier-workflow`, set to the `amplifier-kv` internal connection string from its Dashboard page.
+8. Add `REDIS_URL` to `amplifier-workflow`, set to the `amplifier-kv` internal connection string from its Dashboard page. Do not copy the value from `.env` or `.env.example`; those hold `redis://localhost:6379` for local dev, and on Render nothing listens there. A run using it fails every Key Value task with repeated `[ioredis] Unhandled error event: AggregateError [ECONNREFUSED]` and `Reached the max retries per request limit (which is 20)`.
 9. Confirm the link took: the Workflow service's environment page lists `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5` from the group. If it does not, the group exists but is not linked, and every note will carry `(Summarization LLM call failed)`.
 10. Register the receiver in Typefully, following [Registering the Typefully webhook](#registering-the-typefully-webhook) below.
 11. Leave `DRY_RUN` unset for a couple of published posts and read the Workflow logs to ensure everything is working as intended.
@@ -238,7 +238,8 @@ and both credentials show up on the app's pages afterwards. Copy one of these tw
   locked to the channel you picked during install, so `SLACK_CHANNEL` is ignored and
   switching channels means a new webhook.
 - **`SLACK_BOT_TOKEN`** is the `xoxb-` token on **OAuth & Permissions**. It makes
-  `SLACK_CHANNEL` pick the channel, and you `/invite` the bot there first.
+  `SLACK_CHANNEL` pick the channel, and you `/invite` the bot there first. The
+  leading `#` is optional.
 
 If neither is set, `amplifier.postNote` logs to the console and
 reports `delivered: false`.
@@ -255,7 +256,7 @@ manifest.
 | `TYPEFULLY_BASE_URL`             | Typefully                   | —     | Local stub only. The API key goes to whatever host this names.                                                                                                                                                                                       |
 | `SLACK_WEBHOOK_URL`              | —                           | —     | Incoming webhook. Locked to the channel you created it for.                                                                                                                                                                                          |
 | `SLACK_BOT_TOKEN`                | —                           | —     | Bot token. Required for `SLACK_CHANNEL` to be honored.                                                                                                                                                                                               |
-| `SLACK_CHANNEL`                  | —                           | —     | Channel the note goes to. Needs `SLACK_BOT_TOKEN`.                                                                                                                                                                                                   |
+| `SLACK_CHANNEL`                  | —                           | —     | Channel the note goes to, with or without a leading `#`. Needs `SLACK_BOT_TOKEN`.                                                                                                                                                                    |
 | `ANTHROPIC_API_KEY`              | —                           | —     | Required for the summary. Without it the note carries the fallback lead line.                                                                                                                                                                        |
 | `REDIS_URL`                      | —                           | —     | Required. The `amplifier-kv` internal connection string.                                                                                                                                                                                             |
 | `DRY_RUN`                        | `true`                      | —     | Set to `false` to post to Slack.                                                                                                                                                                                                                     |

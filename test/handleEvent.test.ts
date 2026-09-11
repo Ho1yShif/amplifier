@@ -7,7 +7,7 @@ import { post } from "./support/fixtures.js";
 import { taskCtx, type TaskHandlers } from "./support/taskCtx.js";
 
 const EVENT_AT = "2026-09-04T15:30:00Z";
-const BASE = { dryRun: false, slackChannel: "#social", eventAt: EVENT_AT, draftId: "1" };
+const BASE = { dryRun: false, slackChannel: "social", eventAt: EVENT_AT, draftId: "1" };
 
 /** The draft as Typefully reports it before and after X reports its permalink. */
 const stillPublishing: PublishedPost[] = [post("1", EVENT_AT, ["linkedin"], { pending: ["x"] })];

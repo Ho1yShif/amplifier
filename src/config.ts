@@ -68,7 +68,7 @@ export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): AmplifierConfig {
   const socialSetId = input.socialSetId ?? env.TYPEFULLY_SOCIAL_SET_ID;
-  const slackChannel = input.slackChannel ?? env.SLACK_CHANNEL;
+  const slackChannel = channelName(input.slackChannel ?? env.SLACK_CHANNEL);
   const seenTtlDays = whole(
     "AMPLIFIER_SEEN_TTL_DAYS",
     input.seenTtlDays,
@@ -116,6 +116,14 @@ export function loadConfig(
     summaryModel: text(input.summaryModel, env.AMPLIFIER_SUMMARY_MODEL, DEFAULT_SUMMARY_MODEL),
     dryRun: input.dryRun ?? env.DRY_RUN !== "false",
   };
+}
+
+/**
+ * Strip the leading "#" Slack uses to display a channel. `chat.postMessage`
+ * takes a bare name or an id, so accept both forms and store the bare one.
+ */
+function channelName(value: string | undefined): string | undefined {
+  return value?.trim().replace(/^#/, "") || undefined;
 }
 
 /**

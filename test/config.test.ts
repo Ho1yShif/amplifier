@@ -29,7 +29,7 @@ describe("loadConfig", () => {
         AMPLIFIER_SEEN_TTL_DAYS: "7",
         AMPLIFIER_LIMIT: "50",
         AMPLIFIER_CALL_TO_ACTION: "Boost it.",
-        SLACK_CHANNEL: "#social",
+        SLACK_CHANNEL: "social",
         DRY_RUN: "false",
       },
     );
@@ -40,7 +40,7 @@ describe("loadConfig", () => {
       groupWindowMinutes: 5,
       settleMinutes: 3,
       seenTtlSeconds: 7 * 86_400,
-      slackChannel: "#social",
+      slackChannel: "social",
       callToAction: "Boost it.",
       summaryModel: DEFAULT_SUMMARY_MODEL,
       dryRun: false,
@@ -57,6 +57,13 @@ describe("loadConfig", () => {
     );
     expect(config.lookbackMinutes).toBe(5);
     expect(config.dryRun).toBe(true);
+  });
+
+  it("takes a channel with or without a leading #", () => {
+    expect(loadConfig({}, { SLACK_CHANNEL: "#social" }).slackChannel).toBe("social");
+    expect(loadConfig({}, { SLACK_CHANNEL: " social " }).slackChannel).toBe("social");
+    expect(loadConfig({ slackChannel: "#social" }, {}).slackChannel).toBe("social");
+    expect(loadConfig({}, { SLACK_CHANNEL: " " }).slackChannel).toBeUndefined();
   });
 
   it("stays in dry run unless DRY_RUN is exactly false", () => {

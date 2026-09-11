@@ -27,7 +27,7 @@ function runCtx(overrides: TaskHandlers = {}) {
   });
 }
 
-const BASE = { now: NOW, dryRun: false, socialSetId: "set_1", slackChannel: "#social" };
+const BASE = { now: NOW, dryRun: false, socialSetId: "set_1", slackChannel: "social" };
 
 /**
  * Run checkPostsImpl with an empty environment, which every test wants.
@@ -50,7 +50,7 @@ describe("checkPostsImpl", () => {
 
     const posts = calls.filter((c) => c.name === "amplifier.postNote");
     expect(posts).toHaveLength(1);
-    expect(posts[0]?.input.channel).toBe("#social");
+    expect(posts[0]?.input.channel).toBe("social");
     expect(posts[0]?.input.markdown).toContain("|X post>");
     expect(posts[0]?.input.markdown).toContain("|LinkedIn post>");
     expect(result.notified).toBe(1);
