@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import type { WebhookAdapter, WebhookContext, WebhookRequest } from "@render-lab/triggers";
 import { isFresh, timingSafeEquals } from "../http/signature.js";
 
-/** The one event that can produce a note. See docs/typefully-webhook.md. */
+/** The one event that can produce a note. */
 const PUBLISHED_EVENT = "draft.published";
 
 /** Headers Typefully signs a delivery with, lowercased the way the server hands them over. */

@@ -37,7 +37,7 @@ if (draftId !== undefined) {
 }
 
 // Sign exactly the bytes that go on the wire. Typefully signs the timestamp, a
-// literal ".", and the raw body. See docs/typefully-webhook.md.
+// literal ".", and the raw body.
 const rawBody = JSON.stringify(event);
 const timestamp = String(Math.floor(Date.now() / 1000));
 const signature = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");

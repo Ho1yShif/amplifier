@@ -13,7 +13,7 @@ function minutesAgo(minutes: number): string {
   return String(NOW.getTime() / 1000 - minutes * 60);
 }
 
-/** The real draft.published body captured in docs/typefully-webhook.md. */
+/** A real draft.published body, captured from a Typefully delivery. */
 const PUBLISHED_BODY = readFileSync(
   new URL("./support/typefully-event.json", import.meta.url),
   "utf8",
