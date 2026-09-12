@@ -30,7 +30,7 @@ export async function findLaunchesImpl(
   }
 
   const needles = [
-    ...new Set(input.needles.map((n) => n.trim()).filter((n) => n.length >= MIN_NEEDLE)),
+    ...new Set((input.needles ?? []).map((n) => n.trim()).filter((n) => n.length >= MIN_NEEDLE)),
   ];
   if (needles.length === 0) {
     throw new Error(`Pass at least one needle of ${MIN_NEEDLE} characters or more.`);

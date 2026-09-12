@@ -8,17 +8,16 @@ import type { NotionPage } from "../../src/notion/types.js";
  * call it did not expect.
  */
 export function fakeNotion(overrides: Partial<NotionPort> = {}): NotionPort {
-  const unexpected = (method: string) =>
+  const unexpected = <M extends keyof NotionPort>(method: M): NotionPort[M] =>
     vi.fn(async () => {
       throw new Error(`Unexpected Notion call: ${method}`);
-    });
+    }) as NotionPort[M];
   return {
-    getPage: overrides.getPage ?? (unexpected("getPage") as NotionPort["getPage"]),
-    getDatabase: overrides.getDatabase ?? (unexpected("getDatabase") as NotionPort["getDatabase"]),
-    getDataSource:
-      overrides.getDataSource ?? (unexpected("getDataSource") as NotionPort["getDataSource"]),
-    queryDataSource:
-      overrides.queryDataSource ?? (unexpected("queryDataSource") as NotionPort["queryDataSource"]),
+    getPage: unexpected("getPage"),
+    getDatabase: unexpected("getDatabase"),
+    getDataSource: unexpected("getDataSource"),
+    queryDataSource: unexpected("queryDataSource"),
+    ...overrides,
   };
 }
 

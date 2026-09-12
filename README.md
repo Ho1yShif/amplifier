@@ -145,7 +145,7 @@ region Oregon, built from `main`.
 
    `NOTION_TOKEN` is only needed for the owner DMs; leave it out if you only want the announce path. See [Pinging a launch's owners](#pinging-a-launchs-owners).
 
-   `TYPEFULLY_WEBHOOK_SECRET` belongs in `amplifier-triggers` too, but Typefully does not show it until step 11, so leave it out for now. Leave `AMPLIFIER_SUMMARY_MODEL` out as well; `render.yaml` gives it a literal value and the apply adds it to `amplifier-workflow`. `REDIS_URL` comes later, in step 9, because `amplifier-kv` does not exist yet. Nothing here can use `generateValue`; every value is one you paste in.
+   `TYPEFULLY_WEBHOOK_SECRET` belongs in `amplifier-triggers` too, but Typefully does not show it until step 11, so leave it out for now. `NOTION_WEBHOOK_SECRET` belongs there as well and comes later still, in step 14, because Notion produces it only when the subscription is created. Leave `AMPLIFIER_SUMMARY_MODEL` out as well; `render.yaml` gives it a literal value and the apply adds it to `amplifier-workflow`. `REDIS_URL` comes later, in step 9, because `amplifier-kv` does not exist yet. Nothing here can use `generateValue`; every value is one you paste in.
 
 5. Apply `render.yaml`, with the Deploy to Render button above or from the Dashboard, to create the `amplifier-webhook` service and the Key Value instance, and to link `amplifier-triggers` to the receiver. The apply asks for no values, because step 4 set them all.
 6. Point the Slack app at the receiver, now that it has a hostname, following [Interactivity and the OAuth redirect](#interactivity-and-the-oauth-redirect). It sets the two Slack URLs and adds `AMPLIFIER_PUBLIC_URL` to `amplifier-workflow`. Skip this step if you are not using the Repost button.
@@ -215,7 +215,7 @@ so `render workflows create` needs no `--env-var` or `--env-file` flags.
 
 ### Notion integration and webhook
 
-Do this after the receiver is deployed, and in this order. The handshake in step 7 only works while
+Do this after the receiver is deployed, and in this order. The handshake in step 8 only works while
 `NOTION_WEBHOOK_SECRET` is unset, which is exactly when you need it.
 
 1. Open <https://notion.so/profile/integrations> and click **New integration**. Name it, pick the
@@ -229,16 +229,24 @@ Do this after the receiver is deployed, and in this order. The handshake in step
 4. Connect the integration to the launch database, from the database's **···** menu >
    **Connections** > the integration's name. A page the integration is not connected to answers 404,
    and `amplifier.pingOwners` fails.
-5. Add the secret to the `amplifier-workflow` env group as `NOTION_TOKEN`, and redeploy the Workflow
-   service. It reads the token on each call, but the redeploy is what puts the new variable on the
+5. Copy the launch database's id. Open the database as a full page and take the 32 hex characters
+   in the URL before the `?`, so
+   `https://notion.so/7dabf9f3eeb64800bdf6b919611ff771?v=39d751b483268049b220000c027ed883` gives
+   `7dabf9f3eeb64800bdf6b919611ff771`. The `v=` part names a view, which amplifier does not read. A
+   link copied from a row gives that row's page id instead, and `notion.findLaunches` then fails
+   with a 404 naming `NOTION_DATABASE_ID`. `render.yaml` already carries the Render content
+   database's id, so the Render team can skip this step and check the value the Blueprint set.
+6. Add the secret to the `amplifier-workflow` env group as `NOTION_TOKEN`, along with
+   `NOTION_DATABASE_ID` if you are not using the id from `render.yaml`, and redeploy the Workflow
+   service. It reads the token on each call, but the redeploy is what puts the new variables on the
    running service.
-6. On the integration's **Webhooks** tab, create a subscription pointing at the receiver's
+7. On the integration's **Webhooks** tab, create a subscription pointing at the receiver's
    `onrender.com` URL with `/webhooks/notion` appended, and subscribe to
    `page.properties_updated`.
-7. Notion posts a one-time unsigned handshake to that URL and waits. Open the `amplifier-webhook`
+8. Notion posts a one-time unsigned handshake to that URL and waits. Open the `amplifier-webhook`
    logs, copy the token from the `Notion subscription handshake` line, and paste it into the Notion
    UI to verify the subscription.
-8. Add that same token to the `amplifier-triggers` env group as `NOTION_WEBHOOK_SECRET`, and
+9. Add that same token to the `amplifier-triggers` env group as `NOTION_WEBHOOK_SECRET`, and
    redeploy `amplifier-webhook`. Until then it rejects every delivery.
 
 ### Manual trigger
@@ -383,9 +391,11 @@ host.
    this against the redirect on the authorize link character for character, so use https
    and no trailing slash.
 3. On the same page, check both scope lists against the manifest. **Bot Token Scopes** needs
-   `chat:write` and `reactions:write`. **User Token Scopes** needs `chat:write`, because a
-   repost posts as the person who clicked. Click **Add an OAuth Scope** for any that is
-   missing. An app installed before `reactions:write` was added will not have it.
+   `chat:write`, `reactions:write`, `users:read.email` and `im:write`. **User Token Scopes**
+   needs `chat:write`, because a repost posts as the person who clicked. Click **Add an OAuth
+   Scope** for any that is missing. An app installed before `reactions:write`,
+   `users:read.email` or `im:write` was added does not have them, and without the last two
+   `amplifier.pingOwners` reaches nobody.
 4. If either scope list changed, click **Reinstall to <WORKSPACE-NAME>** at the top of the
    page. The new scope takes effect on the existing installation. Compare the **Bot User
    OAuth Token** against `SLACK_BOT_TOKEN` in the `amplifier-workflow` Environment Group:
@@ -607,7 +617,7 @@ Default call to action: "New Render social post! Please like and share when you 
 
 Default ping ask: "Please review it in Typefully, then like and share it when it goes live."
 
-Every variable above reaches the Workflow service through the `amplifier-workflow` env group, so set them there rather than on the service. All of them are added to the group by hand, in step 4, except `AMPLIFIER_SUMMARY_MODEL`: it has a literal value in `render.yaml`, so a Blueprint apply resets a Dashboard override.
+Every variable above reaches the Workflow service through the `amplifier-workflow` env group, so set them there rather than on the service. You add most of them to the group by hand, in step 4. `AMPLIFIER_SUMMARY_MODEL`, `AMPLIFIER_REPOST_EMOJI`, `NOTION_TYPEFULLY_PROPERTY`, `NOTION_OWNERS_PROPERTY` and `NOTION_DATABASE_ID` have literal values in `render.yaml`, so a Blueprint apply resets a Dashboard override of any of those five.
 
 ### Webhook receiver
 
