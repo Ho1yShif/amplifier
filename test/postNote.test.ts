@@ -52,6 +52,38 @@ describe("postNoteImpl", () => {
     }
   });
 
+  it("sends the call to a loopback stub when SLACK_API_BASE_URL names one", async () => {
+    const { sent, restore } = captureFetch(OK);
+    try {
+      const { ctx } = taskCtx({});
+      await postNoteImpl(
+        ctx,
+        { ...message, channel: "#social" },
+        { SLACK_BOT_TOKEN: "xoxb-test", SLACK_API_BASE_URL: "http://localhost:8787/slack" },
+      );
+      expect(sent[0]?.url).toBe("http://localhost:8787/slack/chat.postMessage");
+    } finally {
+      restore();
+    }
+  });
+
+  it("refuses to send the token to a host that is not Slack or the stub", async () => {
+    const { sent, restore } = captureFetch(OK);
+    try {
+      const { ctx } = taskCtx({});
+      await expect(
+        postNoteImpl(
+          ctx,
+          { ...message, channel: "#social" },
+          { SLACK_BOT_TOKEN: "xoxb-test", SLACK_API_BASE_URL: "https://slack.com.evil.io/api" },
+        ),
+      ).rejects.toThrow(/SLACK_BOT_TOKEN would be sent to slack\.com\.evil\.io/);
+      expect(sent).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+
   it("keeps the blocks the template built", async () => {
     const { sent, restore } = captureFetch(OK);
     try {
