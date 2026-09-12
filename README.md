@@ -311,8 +311,10 @@ host.
    `<receiver>/slack/oauth/callback`, then click **Add** and **Save URLs**. Slack compares
    this against the redirect on the authorize link character for character, so use https
    and no trailing slash.
-3. On the same page under **User Token Scopes**, click **Add an OAuth Scope**, type `chat:write`, and select it.
-   The manifest asks for it. A repost posts as the person who clicked, which is what the user scope is for.
+3. On the same page, check both scope lists against the manifest. **Bot Token Scopes** needs
+   `chat:write` and `reactions:write`. **User Token Scopes** needs `chat:write`, because a
+   repost posts as the person who clicked. Click **Add an OAuth Scope** for any that is
+   missing. An app installed before `reactions:write` was added will not have it.
 4. If either scope list changed, click **Reinstall to <WORKSPACE-NAME>** at the top of the page.
    A reinstall mints a new bot token, so copy the new `xoxb-` value into `SLACK_BOT_TOKEN` in the `amplifier-workflow` Environment Group.
 5. Set the environment variables the button needs. In the Render Dashboard the two env
@@ -344,6 +346,10 @@ first click. Three failures to tell apart:
   missing `SLACK_CLIENT_ID`, `SLACK_SIGNING_SECRET`, or `AMPLIFIER_PUBLIC_URL`.
 - The authorize link ends on Slack's `bad_redirect_uri` page. The redirect URL in step 2
   does not match `AMPLIFIER_PUBLIC_URL` exactly.
+- The repost lands and the "Reposted by" reply appears, but the source note gets no check
+  mark. The bot token has no `reactions:write`, and `amplifier.repost` logs
+  `reactions.add error: missing_scope` rather than failing the click. Add the scope in
+  step 3, reinstall, and update `SLACK_BOT_TOKEN`.
 
 To test against a local receiver, put a tunnel in front of it and use the tunnel's
 hostname in steps 1, 2 and 5. Slack has to reach the receiver from the internet.
