@@ -264,8 +264,8 @@ Pick the Slack channel the notes will go to. If the production channel is busy, 
 
 The manifest requests `chat:write` and `reactions:write` for the bot, and `chat:write` for
 a user. To change the app later, edit the file and paste it into **App Manifest** on the
-app's settings page. A scope change requires a reinstall, which mints a new bot token, so
-update `SLACK_BOT_TOKEN` afterwards.
+app's settings page. A scope change requires a reinstall. Check the Bot User OAuth Token
+afterwards and update `SLACK_BOT_TOKEN` if it changed.
 
 The two URLs in the manifest point at the `amplifier-webhook` receiver, which does not
 exist until the Blueprint is applied. Deployment step 6 fills them in.
@@ -316,9 +316,10 @@ host.
    repost posts as the person who clicked. Click **Add an OAuth Scope** for any that is
    missing. An app installed before `reactions:write` was added will not have it.
 4. If either scope list changed, click **Reinstall to <WORKSPACE-NAME>** at the top of the
-   page. A reinstall mints a new bot token, so copy the new `xoxb-` value into
-   `SLACK_BOT_TOKEN` in the `amplifier-workflow` Environment Group and redeploy
-   `amplifier-workflow`. The old token keeps working with the old scopes until you do.
+   page. The new scope takes effect on the existing installation. Compare the **Bot User
+   OAuth Token** against `SLACK_BOT_TOKEN` in the `amplifier-workflow` Environment Group:
+   Slack usually returns the same `xoxb-` value, and then there is nothing to change. If it
+   did change, paste the new one in and redeploy `amplifier-workflow`.
 5. Set the environment variables the button needs. In the Render Dashboard the two env
    groups are under **Env Groups**. `amplifier-triggers` gets `SLACK_CLIENT_ID` and
    `SLACK_SIGNING_SECRET`. `amplifier-workflow` gets those two plus `SLACK_CLIENT_SECRET`,
@@ -361,7 +362,7 @@ hostname in steps 1, 2 and 5. Slack has to reach the receiver from the internet.
 
 The incoming-webhook path is gone, so a deployment that used `SLACK_WEBHOOK_URL` needs four changes:
 
-1. Paste the updated `slack-app-manifest.yaml` into the Slack app and reinstall it. The scope change mints a new bot token, so update `SLACK_BOT_TOKEN`.
+1. Paste the updated `slack-app-manifest.yaml` into the Slack app and reinstall it. Check the Bot User OAuth Token afterwards and update `SLACK_BOT_TOKEN` if it changed.
 2. Remove `SLACK_WEBHOOK_URL` from `amplifier-workflow`, and confirm `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` are both set and the bot is in the source channel.
 3. Set the Slack app's Interactivity Request URL and OAuth Redirect URL, following [Interactivity and the OAuth redirect](#interactivity-and-the-oauth-redirect), if you want the Repost button.
 4. Redeploy both services.
