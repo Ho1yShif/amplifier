@@ -145,7 +145,7 @@ region Oregon, built from `main`.
    `TYPEFULLY_WEBHOOK_SECRET` belongs in `amplifier-triggers` too, but Typefully does not show it until step 11, so leave it out for now. Leave `AMPLIFIER_SUMMARY_MODEL` out as well; `render.yaml` gives it a literal value and the apply adds it to `amplifier-workflow`. `REDIS_URL` comes later, in step 9, because `amplifier-kv` does not exist yet. Nothing here can use `generateValue`; every value is one you paste in.
 
 5. Apply `render.yaml`, with the Deploy to Render button above or from the Dashboard, to create the `amplifier-webhook` service and the Key Value instance, and to link `amplifier-triggers` to the receiver. The apply asks for no values, because step 4 set them all.
-6. Point the Slack app at the receiver, now that it has a hostname. On the app's pages set **Interactivity & Shortcuts > Request URL** to `<receiver>/slack/interactivity` and **OAuth & Permissions > Redirect URLs** to `<receiver>/slack/oauth/callback`, then add `AMPLIFIER_PUBLIC_URL` to `amplifier-workflow`, set to the receiver's base URL. The Workflow service builds the authorize link and has no external URL of its own. Skip this step if you are not using the Repost button.
+6. Point the Slack app at the receiver, now that it has a hostname, following [Interactivity and the OAuth redirect](#interactivity-and-the-oauth-redirect). It sets the two Slack URLs and adds `AMPLIFIER_PUBLIC_URL` to `amplifier-workflow`. Skip this step if you are not using the Repost button.
 7. Confirm `amplifier-kv` landed in region Oregon. `render.yaml` names Oregon, so it should. The Workflow service reaches it over the private network as long as both are in Oregon in the same workspace; the project and the environment do not have to match.
 8. On the Workflow service, link the `amplifier-workflow` env group. The group holds every variable the Workflow service reads, and it is linked in the Dashboard because Blueprints do not support Workflow services, so `render.yaml` cannot reference it.
 9. Add `REDIS_URL` to `amplifier-workflow`, set to the `amplifier-kv` internal connection string from its Dashboard page. Do not copy the value from `.env` or `.env.example`; those hold `redis://localhost:6379` for local dev, and on Render nothing listens there. A run using it fails every Key Value task with repeated `[ioredis] Unhandled error event: AggregateError [ECONNREFUSED]` and `Reached the max retries per request limit (which is 20)`.
@@ -290,13 +290,71 @@ the Web API route returns one.
 
 The token is minted during install, so it cannot be committed alongside the manifest.
 
+### Interactivity and the OAuth redirect
+
+The Repost button needs two URLs on the Slack app, and both point at the deployed
+`amplifier-webhook` receiver. Do this after the Blueprint apply, because the receiver's
+hostname does not exist before then.
+
+`<receiver>` below is that service's public URL. Open `amplifier-webhook` in the Render
+Dashboard and copy the URL at the top of its page. It reads
+`https://amplifier-webhook.onrender.com` unless the name was already taken, in which case
+Render appends a suffix and it reads something like
+`https://amplifier-webhook-a1b2.onrender.com`. Use whatever the Dashboard shows, with no
+trailing slash. `<receiver>/healthz` answering 200 confirms you have the right
+host.
+
+1. Open the app at <https://api.slack.com/apps> and go to **Interactivity & Shortcuts**.
+   Turn **Interactivity** on, set **Request URL** to `<receiver>/slack/interactivity`, and
+   click **Save Changes**. This is the URL Slack posts to when someone clicks Repost.
+2. Go to **OAuth & Permissions > Redirect URLs**, click **Add New Redirect URL**, enter
+   `<receiver>/slack/oauth/callback`, then click **Add** and **Save URLs**. Slack compares
+   this against the redirect on the authorize link character for character, so use https
+   and no trailing slash.
+3. On the same page under **User Token Scopes**, click **Add an OAuth Scope**, type `chat:write`, and select it.
+   The manifest asks for it. A repost posts as the person who clicked, which is what the user scope is for.
+4. If either scope list changed, click **Reinstall to <WORKSPACE-NAME>** at the top of the page.
+   A reinstall mints a new bot token, so copy the new `xoxb-` value into `SLACK_BOT_TOKEN` in the `amplifier-workflow` Environment Group.
+5. Set the environment variables the button needs. In the Render Dashboard the two env
+   groups are under **Env Groups**. `amplifier-triggers` gets `SLACK_CLIENT_ID` and
+   `SLACK_SIGNING_SECRET`. `amplifier-workflow` gets those two plus `SLACK_CLIENT_SECRET`,
+   `AMPLIFIER_REPOST_CHANNEL`, and `AMPLIFIER_PUBLIC_URL`. Redeploy both services
+   afterwards. Where each value comes from:
+
+   - `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` and `SLACK_SIGNING_SECRET` are all on the
+     Slack app's **Basic Information** page, under **App Credentials**. The secret and the
+     signing secret are hidden until you click **Show**. The client id and the signing
+     secret go in both groups, with the same value in each.
+   - `AMPLIFIER_REPOST_CHANNEL` is the channel reposts go to, which you pick. It is not
+     the channel the notes are posted in.
+   - `AMPLIFIER_PUBLIC_URL` is `<receiver>`, the same URL you used in steps 1 and 2. The
+     Workflow service builds the authorize link and has no external URL of its own.
+
+6. Post a cross-post note and click **Repost to #<channel>**. The first click answers
+   privately with an authorize link. Approve it, click Repost again, and the thread should
+   appear in the repost channel under your own name.
+
+Slack does not check the Request URL when you save it, so a wrong URL shows up only on the
+first click. Three failures to tell apart:
+
+- Slack shows a warning in the channel and nothing else happens. The receiver did not
+  answer 200 within three seconds. Check that it is deployed and that the Request URL has
+  no typo.
+- The click is answered with "Ask the amplifier owner to set..." The Workflow service is
+  missing `SLACK_CLIENT_ID`, `SLACK_SIGNING_SECRET`, or `AMPLIFIER_PUBLIC_URL`.
+- The authorize link ends on Slack's `bad_redirect_uri` page. The redirect URL in step 2
+  does not match `AMPLIFIER_PUBLIC_URL` exactly.
+
+To test against a local receiver, put a tunnel in front of it and use the tunnel's
+hostname in steps 1, 2 and 5. Slack has to reach the receiver from the internet.
+
 ### Migrating an existing deployment
 
 The incoming-webhook path is gone, so a deployment that used `SLACK_WEBHOOK_URL` needs four changes:
 
 1. Paste the updated `slack-app-manifest.yaml` into the Slack app and reinstall it. The scope change mints a new bot token, so update `SLACK_BOT_TOKEN`.
 2. Remove `SLACK_WEBHOOK_URL` from `amplifier-workflow`, and confirm `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` are both set and the bot is in the source channel.
-3. Set the Slack app's Interactivity Request URL and OAuth Redirect URL, as in deployment step 6, if you want the Repost button.
+3. Set the Slack app's Interactivity Request URL and OAuth Redirect URL, following [Interactivity and the OAuth redirect](#interactivity-and-the-oauth-redirect), if you want the Repost button.
 4. Redeploy both services.
 
 ## Reposting
