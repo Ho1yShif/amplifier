@@ -139,7 +139,7 @@ region Oregon, built from `main`.
    | `amplifier-workflow` | `TYPEFULLY_SOCIAL_SET_ID` | `GET /v2/social-sets` lists them                       |
    | `amplifier-workflow` | `SLACK_BOT_TOKEN`         | See below                                              |
    | `amplifier-workflow` | `SLACK_CHANNEL`           | The channel the notes go to                            |
-   | `amplifier-workflow` | `NOTION_TOKEN`            | Internal integration secret, for the owner DMs         |
+   | `amplifier-workflow` | `NOTION_TOKEN`            | Integration token, for the owner DMs                   |
 
    For Slack, add `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`. Both are required. To turn the Repost button on, also add `AMPLIFIER_REPOST_CHANNEL`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` and `SLACK_SIGNING_SECRET` to `amplifier-workflow`, and `SLACK_CLIENT_ID` and `SLACK_SIGNING_SECRET` to `amplifier-triggers`. All four Slack values are on the app's Basic Information page. `AMPLIFIER_PUBLIC_URL` comes later, in step 6, because it is the receiver's own URL. See [Reposting](#reposting).
 
@@ -215,8 +215,16 @@ so `render workflows create` needs no `--env-var` or `--env-file` flags.
 
 ### Notion integration and webhook
 
-Do this after the receiver is deployed, and in this order. The handshake in step 8 only works while
-`NOTION_WEBHOOK_SECRET` is unset, which is exactly when you need it.
+Do this after the receiver is deployed. Every call sends `NOTION_TOKEN` as a bearer token, and
+Notion's two kinds of integration both produce one, so create whichever kind you can and then
+follow [Database id, webhook and secret](#database-id-webhook-and-secret) for the rest.
+
+An internal integration is the shorter path, and creating one requires the workspace that holds the
+launch database to allow it. An OAuth integration lives in a workspace you control, and whoever
+authorizes it grants access to pages they can already see, so it is the path when the launch
+database's workspace is not yours to configure.
+
+#### Internal integration
 
 1. Open <https://notion.so/profile/integrations> and click **New integration**. Name it, pick the
    workspace that holds the launch database, and set its type to **Internal**.
@@ -229,24 +237,82 @@ Do this after the receiver is deployed, and in this order. The handshake in step
 4. Connect the integration to the launch database, from the database's **···** menu >
    **Connections** > the integration's name. A page the integration is not connected to answers 404,
    and `amplifier.pingOwners` fails.
-5. Copy the launch database's id. Open the database as a full page and take the 32 hex characters
+
+#### OAuth integration
+
+Notion calls this a public integration. The authorization hands back an access token that works
+wherever an internal secret works, so the extra work is the one-time exchange in steps 6 to 8.
+Amplifier has no Notion callback route, so you do that exchange by hand with `curl`.
+
+1. Open <https://notion.so/profile/integrations> and click **New integration**. Name it and pick a
+   workspace you own. Your own free workspace is fine, because the launch database does not have to
+   be in it. Set the type to **Public**. If the form offers no type, create the integration and then
+   turn on **Make integration public** on its **Distribution** tab.
+2. On the **Configuration** tab, under **Capabilities**, check **Read content** and set user
+   capabilities to **Read user information, including email addresses**. Without the email
+   capability the owner property carries no email, and nobody can be DMed. Save.
+3. Fill in the company name, website, privacy policy URL, terms of use URL and support email that
+   Notion asks for. It withholds the OAuth credentials until all of them are set.
+4. Add one **Redirect URI**. Amplifier has no route to receive the code, so point it at a path on
+   the receiver that answers 404, such as `<receiver>/notion/oauth/callback`. A 404 still leaves the
+   code in the browser's address bar, which is all step 7 needs. Notion requires https here, so the
+   deployed receiver is the easiest host to name.
+5. Copy the **OAuth client ID** and **OAuth client secret**. The secret is a password; it authorizes
+   the exchange in step 8.
+6. Open the authorize URL in a browser, with the redirect URI percent-encoded:
+
+   ```
+   https://api.notion.com/v1/oauth/authorize?client_id=<client id>&response_type=code&owner=user&redirect_uri=<redirect uri>
+   ```
+
+   Pick the workspace that holds the launch database, click **Select pages**, choose the launch
+   database, and approve. This grant is what the internal path does from the **Connections** menu.
+   The integration sees the pages you select here and nothing else, and you can only select pages
+   you can see yourself.
+
+7. The browser lands on the redirect URI with `?code=...` on the end. Copy that code. It is
+   single-use and expires within minutes, so run the next step straight away.
+8. Exchange the code for a token:
+
+   ```bash
+   curl -X POST https://api.notion.com/v1/oauth/token \
+     -u '<client id>:<client secret>' \
+     -H 'Content-Type: application/json' \
+     -d '{"grant_type":"authorization_code","code":"<code>","redirect_uri":"<redirect uri>"}'
+   ```
+
+   The `access_token` in the reply is `NOTION_TOKEN`. Treat it as a password, the same as an
+   internal secret. The reply also names the workspace and the bot user the grant created. If it
+   carries a `refresh_token` or an expiry, the token is not permanent, and amplifier has no refresh
+   path, so renewing it means running steps 6 to 8 again.
+
+Re-run steps 6 to 8 to add a page the grant does not cover, or add it from the database's **···** >
+**Connections** menu, which works for either kind of integration.
+
+#### Database id, webhook and secret
+
+Keep this order. The handshake in step 4 only works while `NOTION_WEBHOOK_SECRET` is unset, which is
+exactly when you need it.
+
+1. Copy the launch database's id. Open the database as a full page and take the 32 hex characters
    in the URL before the `?`, so
    `https://notion.so/7dabf9f3eeb64800bdf6b919611ff771?v=39d751b483268049b220000c027ed883` gives
    `7dabf9f3eeb64800bdf6b919611ff771`. The `v=` part names a view, which amplifier does not read. A
    link copied from a row gives that row's page id instead, and `notion.findLaunches` then fails
    with a 404 naming `NOTION_DATABASE_ID`. `render.yaml` already carries the Render content
    database's id, so the Render team can skip this step and check the value the Blueprint set.
-6. Add the secret to the `amplifier-workflow` env group as `NOTION_TOKEN`, along with
+2. Add the token to the `amplifier-workflow` env group as `NOTION_TOKEN`, along with
    `NOTION_DATABASE_ID` if you are not using the id from `render.yaml`, and redeploy the Workflow
    service. It reads the token on each call, but the redeploy is what puts the new variables on the
    running service.
-7. On the integration's **Webhooks** tab, create a subscription pointing at the receiver's
+3. On the integration's **Webhooks** tab, create a subscription pointing at the receiver's
    `onrender.com` URL with `/webhooks/notion` appended, and subscribe to
-   `page.properties_updated`.
-8. Notion posts a one-time unsigned handshake to that URL and waits. Open the `amplifier-webhook`
+   `page.properties_updated`. A public integration delivers events from every workspace that
+   authorized it, so read [Security](#security) before you let anyone else authorize this one.
+4. Notion posts a one-time unsigned handshake to that URL and waits. Open the `amplifier-webhook`
    logs, copy the token from the `Notion subscription handshake` line, and paste it into the Notion
    UI to verify the subscription.
-9. Add that same token to the `amplifier-triggers` env group as `NOTION_WEBHOOK_SECRET`, and
+5. Add that same token to the `amplifier-triggers` env group as `NOTION_WEBHOOK_SECRET`, and
    redeploy `amplifier-webhook`. Until then it rejects every delivery.
 
 ### Manual trigger
@@ -328,6 +394,8 @@ The receiver's URL is public, and a signature check is the only thing gating eac
 A Typefully delivery whose HMAC-SHA256 signature does not match `TYPEFULLY_WEBHOOK_SECRET` gets a 401 and starts no run, and so does one whose timestamp is more than 15 minutes from the receiver's clock.
 
 A Notion delivery is checked the same way against `NOTION_WEBHOOK_SECRET`, except that Notion signs the raw body alone where Typefully signs `${timestamp}.${rawBody}`. There is no freshness window, because Notion sends no timestamp and retries a failed delivery for about 24 hours, so any window narrow enough to stop a replay would reject legitimate retries. What stops a replay is the pinged marker, which refuses a second delivery for a page whose owners already got their DMs. While `NOTION_WEBHOOK_SECRET` is unset the receiver accepts one body and one only: the unsigned subscription handshake, whose token it logs so you can configure the secret. Every other delivery gets a 401.
+
+An OAuth integration widens what a valid signature means. Notion signs every workspace's deliveries with the same subscription secret, so once a second person authorizes the integration, their page edits reach the receiver and pass the signature check. The receiver does not compare the delivery's workspace against the launch database's, so keep the integration unlisted and authorize it only for the workspace that holds the launch database. `NOTION_DATABASE_ID` is the other limit: a page from any other database is skipped before a DM goes out, as long as the page reports a `database_id`.
 
 `POST /slack/interactivity` recomputes Slack's own HMAC-SHA256 over `v0:{timestamp}:{body}` with `SLACK_SIGNING_SECRET` and rejects a timestamp more than five minutes from the clock. `GET /slack/oauth/callback` takes no signature, so the `state` on the authorize link carries the clicker's user id plus an expiry, HMAC-signed with the same secret. Without that signature anyone could complete the callback and have their own token stored under someone else's id.
 
@@ -594,7 +662,7 @@ cannot cost the channel its announcement.
 | `AMPLIFIER_LIMIT`                | `25`                        | 1–50  | Drafts pulled per run, and the run's widest burst of concurrent Key Value calls.                                                                                                                                                                     |
 | `AMPLIFIER_CALL_TO_ACTION`       | see below                   | —     | The lead line used when the summary fails.                                                                                                                                                                                                           |
 | `AMPLIFIER_SUMMARY_MODEL`        | `anthropic/claude-sonnet-5` | —     | The model that writes the lead line. The provider prefix is required. Takes precedence over `tasks-llm`'s own `LLM_MODEL`.                                                                                                                           |
-| `NOTION_TOKEN`                   | —                           | —     | Required for the owner DMs. An internal integration secret, with the user-email capability.                                                                                                                                                          |
+| `NOTION_TOKEN`                   | —                           | —     | Required for the owner DMs. An internal integration secret, or an OAuth access token, from an integration with the user-email capability.                                                                                                            |
 | `NOTION_TYPEFULLY_PROPERTY`      | `Typefully`                 | —     | Name of the launch page's URL property. Matched case-insensitively, and a longer name containing this one matches too.                                                                                                                               |
 | `NOTION_OWNERS_PROPERTY`         | `Owner`                     | —     | Name of the launch page's people property. An email or text property is read too.                                                                                                                                                                    |
 | `NOTION_DATABASE_ID`             | —                           | —     | The launch database. Unset means a page from any database the integration can see can ping, and no page can be found by post URL.                                                                                                                    |
