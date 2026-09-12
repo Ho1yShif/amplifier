@@ -14,12 +14,16 @@ features:
     always_online: false
 oauth_config:
   # chat:write posts the note and the Reposted-by reply; reactions:write marks a
-  # note that has been reposted. The user scope is what lets a stakeholder's
-  # Repost click post as them rather than as the bot.
+  # note that has been reposted. users:read.email turns a launch owner's Notion
+  # email into a Slack user id and im:write opens the DM, which is how
+  # amplifier.pingOwners reaches an owner. The user scope is what lets a
+  # stakeholder's Repost click post as them rather than as the bot.
   scopes:
     bot:
       - chat:write
       - reactions:write
+      - users:read.email
+      - im:write
     user:
       - chat:write
   redirect_urls:

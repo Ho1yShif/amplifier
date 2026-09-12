@@ -44,6 +44,15 @@ describe("announcePostImpl", () => {
     expect(result.note?.platforms).toEqual(["linkedin"]);
   });
 
+  it("announces the post a Typefully share URL names, which is the link Notion carries", async () => {
+    const { ctx } = ctxFor();
+
+    const result = await announce(ctx, { url: "https://typefully.com/t/2" });
+
+    expect(result.draftId).toBe("2");
+    expect(result.note?.delivered).toBe(true);
+  });
+
   it("announces the post a draftId names", async () => {
     const { ctx } = ctxFor();
 

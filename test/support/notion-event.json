@@ -1,0 +1,16 @@
+{
+  "id": "c3a5ee1e-9a5f-4e0e-8a1b-4d2f6b8e0a11",
+  "timestamp": "2026-09-10T17:58:03.123Z",
+  "workspace_id": "13950b26-c203-4f3b-b97d-93ec06319565",
+  "workspace_name": "Render",
+  "subscription_id": "29e0bd0e-3c5a-4e2f-9c7a-6f1b2d4e8a90",
+  "integration_id": "0d0e0f10-1112-4314-9516-1718191a1b1c",
+  "authors": [{ "id": "c2f20311-9e54-4d11-8c79-7398424ae41e", "type": "person" }],
+  "attempt_number": 1,
+  "entity": { "id": "2a1b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d", "type": "page" },
+  "type": "page.properties_updated",
+  "data": {
+    "parent": { "id": "7dabf9f3-eeb6-4800-bdf6-b919611ff771", "type": "database" },
+    "updated_properties": ["tyPe"]
+  }
+}

@@ -8,7 +8,7 @@ import {
   type SlackDeps,
   type SlackPort,
 } from "@render-lab/tasks-slack";
-import { checkedBaseUrl } from "../http/baseUrl.js";
+import { SLACK_API_BASE_URL, slackBaseUrl } from "./api.js";
 
 export interface PostNoteInput extends PostMessageInput {
   /** Parent message `ts`, to post this message as a reply in that thread. */
@@ -39,26 +39,17 @@ function rewriteBody(body: string, threadTs: string | undefined): string {
   });
 }
 
-/** Where `webApiPort` sends every call, and what SLACK_API_BASE_URL replaces. */
-const SLACK_API_BASE_URL = "https://slack.com/api";
-
 /**
  * `WebFetchLike` and `FetchLike` take the same `init` shape and differ only in
  * the response shape (`WebFetchLike` also requires `json()`), so one function
  * satisfies both without a cast.
  *
- * `SLACK_API_BASE_URL` redirects the call to a local stub, the way
+ * `slackBaseUrl` redirects the call to a local stub, the way
  * `TYPEFULLY_BASE_URL` does for Typefully. `webApiPort` builds the Slack host
- * into the URL itself, so rewriting the URL here is the only route. Only a
- * loopback address is accepted, because the bot token — and, on a repost, the
- * clicker's user token — travels to whatever host it names.
+ * into the URL itself, so rewriting the URL here is the only route.
  */
 function outgoingFetch(threadTs: string | undefined, env: NodeJS.ProcessEnv) {
-  const base = checkedBaseUrl(env.SLACK_API_BASE_URL, {
-    name: "SLACK_API_BASE_URL",
-    realBaseUrl: SLACK_API_BASE_URL,
-    credential: "SLACK_BOT_TOKEN",
-  });
+  const base = slackBaseUrl(env);
   return (url: string, init: { body: string }) =>
     fetch(url.replace(SLACK_API_BASE_URL, base), {
       ...init,

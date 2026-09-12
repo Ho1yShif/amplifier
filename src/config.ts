@@ -1,3 +1,4 @@
+import { DEFAULT_PING_ASK } from "./amplifier/pingTemplate.js";
 import { MAX_SETTLE_MINUTES } from "./amplifier/retry.js";
 import { DEFAULT_CALL_TO_ACTION } from "./amplifier/template.js";
 import { DEFAULT_SUMMARY_MODEL } from "./summary/model.js";
@@ -43,7 +44,26 @@ export interface AmplifierConfig {
   /** Slack app credentials for the user-token exchange. Absent means nobody can authorize. */
   slackClientId?: string;
   slackClientSecret?: string;
+  /** Display name of the Notion property holding a launch's Typefully link. */
+  notionTypefullyProperty: string;
+  /** Display name of the Notion property naming a launch's owners. */
+  notionOwnersProperty: string;
+  /** Launch database id. Absent means a page from any database can ping. */
+  notionDatabaseId?: string;
+  /** The ask in an owner's DM. */
+  pingAsk: string;
 }
+
+/**
+ * Names of the two properties `amplifier.pingOwners` reads, used when nothing
+ * overrides them.
+ *
+ * Notion keys a page's properties by display name, so these are settings and
+ * not constants. `readLaunch` also matches a property whose name contains the
+ * configured one, so `Typefully` finds a column named `Typefully URL`.
+ */
+export const DEFAULT_TYPEFULLY_PROPERTY = "Typefully";
+export const DEFAULT_OWNERS_PROPERTY = "Owner";
 
 /**
  * Reaction added to a note that has been reposted.
@@ -92,6 +112,7 @@ export function loadConfig(
   const repostChannel = channelName(input.repostChannel ?? env.AMPLIFIER_REPOST_CHANNEL);
   const slackClientId = optional(env.SLACK_CLIENT_ID);
   const slackClientSecret = optional(env.SLACK_CLIENT_SECRET);
+  const notionDatabaseId = optional(env.NOTION_DATABASE_ID);
   const seenTtlDays = whole(
     "AMPLIFIER_SEEN_TTL_DAYS",
     input.seenTtlDays,
@@ -142,6 +163,14 @@ export function loadConfig(
     repostEmoji: text(undefined, env.AMPLIFIER_REPOST_EMOJI, DEFAULT_REPOST_EMOJI),
     ...(slackClientId ? { slackClientId } : {}),
     ...(slackClientSecret ? { slackClientSecret } : {}),
+    notionTypefullyProperty: text(
+      undefined,
+      env.NOTION_TYPEFULLY_PROPERTY,
+      DEFAULT_TYPEFULLY_PROPERTY,
+    ),
+    notionOwnersProperty: text(undefined, env.NOTION_OWNERS_PROPERTY, DEFAULT_OWNERS_PROPERTY),
+    ...(notionDatabaseId ? { notionDatabaseId } : {}),
+    pingAsk: text(undefined, env.AMPLIFIER_PING_ASK, DEFAULT_PING_ASK),
   };
 }
 

@@ -7,6 +7,7 @@ import {
   verifyState,
   type StateFailure,
 } from "./slack/oauth.js";
+import { notionWebhook } from "./notion/webhook.js";
 import { parseRepostClick, verifySlackSignature } from "./slack/interactivity.js";
 import { typefullyWebhook } from "./typefully/webhook.js";
 
@@ -34,7 +35,10 @@ export function buildReceiver(opts: ReceiverOptions): Hono {
   const app = createDispatchServer({
     workflowSlug: opts.workflowSlug,
     dispatcher: opts.dispatcher,
-    webhooks: { typefully: typefullyWebhook({ env, now }) },
+    webhooks: {
+      typefully: typefullyWebhook({ env, now }),
+      notion: notionWebhook({ env, now }),
+    },
   });
 
   /**

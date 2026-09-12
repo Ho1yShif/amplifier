@@ -1,6 +1,7 @@
 # Blueprint for the amplifier trigger layer: the web service that receives
-# Typefully webhook deliveries and starts workflow runs, plus the Key Value
-# instance that records which posts have already been announced. The Workflow
+# Typefully and Notion webhook deliveries and starts workflow runs, plus the Key
+# Value instance that records which posts have been announced and which launch
+# pages have been pinged. The Workflow
 # service itself is created separately because Blueprints don't support
 # Workflows yet.
 #
@@ -11,6 +12,9 @@
 # Settings > API and copy the signing secret back into TYPEFULLY_WEBHOOK_SECRET,
 # then point the Slack app at the receiver: its Interactivity Request URL at
 # /slack/interactivity and its OAuth Redirect URL at /slack/oauth/callback.
+# The Notion subscription is registered last, because reading its verification
+# token out of the receiver's logs requires NOTION_WEBHOOK_SECRET to still be
+# unset. README, Pinging a launch's owners, has the order.
 projects:
   - name: amplifier
     environments:
@@ -64,3 +68,12 @@ projects:
                 value: anthropic/claude-sonnet-5
               - key: AMPLIFIER_REPOST_EMOJI
                 value: white_check_mark
+              # The launch page's two property names, and the database the pages
+              # live in. All three are display-level Notion settings rather than
+              # secrets, so they carry literal values here.
+              - key: NOTION_TYPEFULLY_PROPERTY
+                value: Typefully
+              - key: NOTION_OWNERS_PROPERTY
+                value: Owner
+              - key: NOTION_DATABASE_ID
+                value: 7dabf9f3eeb64800bdf6b919611ff771

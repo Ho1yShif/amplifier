@@ -1,0 +1,57 @@
+{
+  "object": "page",
+  "id": "2a1b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d",
+  "created_time": "2026-09-01T16:00:00.000Z",
+  "last_edited_time": "2026-09-10T17:58:00.000Z",
+  "archived": false,
+  "in_trash": false,
+  "parent": {
+    "type": "database_id",
+    "database_id": "7dabf9f3-eeb6-4800-bdf6-b919611ff771"
+  },
+  "url": "https://www.notion.so/Origin-is-a-supported-Git-provider-2a1b3c4d5e6f4a8b9c0d1e2f3a4b5c6d",
+  "properties": {
+    "Name": {
+      "id": "title",
+      "type": "title",
+      "title": [
+        {
+          "type": "text",
+          "plain_text": "Origin is a supported Git provider"
+        }
+      ]
+    },
+    "Status": {
+      "id": "s%3Dzq",
+      "type": "status",
+      "status": { "id": "1", "name": "Scheduled", "color": "blue" }
+    },
+    "Typefully": {
+      "id": "tyPe",
+      "type": "url",
+      "url": "https://typefully.com/?d=10628613&a=1"
+    },
+    "Owner": {
+      "id": "own%40",
+      "type": "people",
+      "people": [
+        {
+          "object": "user",
+          "id": "c2f20311-9e54-4d11-8c79-7398424ae41e",
+          "name": "Dana Reed",
+          "avatar_url": null,
+          "type": "person",
+          "person": { "email": "dana@render.com" }
+        },
+        {
+          "object": "user",
+          "id": "d3a31422-af65-5e22-9d8a-84a95352bf52",
+          "name": "Sam Okafor",
+          "avatar_url": null,
+          "type": "person",
+          "person": { "email": "sam@render.com" }
+        }
+      ]
+    }
+  }
+}

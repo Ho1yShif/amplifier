@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { MAX_SETTLE_MINUTES } from "../src/amplifier/retry.js";
+import { DEFAULT_PING_ASK } from "../src/amplifier/pingTemplate.js";
 import { DEFAULT_CALL_TO_ACTION } from "../src/amplifier/template.js";
-import { DEFAULT_REPOST_EMOJI, loadConfig, MAX_LIMIT } from "../src/config.js";
+import {
+  DEFAULT_OWNERS_PROPERTY,
+  DEFAULT_REPOST_EMOJI,
+  DEFAULT_TYPEFULLY_PROPERTY,
+  loadConfig,
+  MAX_LIMIT,
+} from "../src/config.js";
 import { DEFAULT_SUMMARY_MODEL } from "../src/summary/model.js";
 
 describe("loadConfig", () => {
@@ -16,6 +23,9 @@ describe("loadConfig", () => {
       summaryModel: DEFAULT_SUMMARY_MODEL,
       dryRun: false,
       repostEmoji: DEFAULT_REPOST_EMOJI,
+      notionTypefullyProperty: DEFAULT_TYPEFULLY_PROPERTY,
+      notionOwnersProperty: DEFAULT_OWNERS_PROPERTY,
+      pingAsk: DEFAULT_PING_ASK,
     });
   });
 
@@ -36,6 +46,10 @@ describe("loadConfig", () => {
         AMPLIFIER_REPOST_EMOJI: "loudspeaker",
         SLACK_CLIENT_ID: "1234.5678",
         SLACK_CLIENT_SECRET: "client-secret",
+        NOTION_TYPEFULLY_PROPERTY: "Typefully URL",
+        NOTION_OWNERS_PROPERTY: "Owners",
+        NOTION_DATABASE_ID: "7dabf9f3eeb64800bdf6b919611ff771",
+        AMPLIFIER_PING_ASK: "Amplify it.",
       },
     );
     expect(config).toEqual({
@@ -53,6 +67,10 @@ describe("loadConfig", () => {
       repostEmoji: "loudspeaker",
       slackClientId: "1234.5678",
       slackClientSecret: "client-secret",
+      notionTypefullyProperty: "Typefully URL",
+      notionOwnersProperty: "Owners",
+      notionDatabaseId: "7dabf9f3eeb64800bdf6b919611ff771",
+      pingAsk: "Amplify it.",
     });
   });
 

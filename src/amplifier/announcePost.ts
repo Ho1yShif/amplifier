@@ -9,7 +9,7 @@ import { groupPosts } from "./group.js";
 import { seenKey } from "./seen.js";
 
 export interface AnnouncePostInput {
-  /** Permalink to the live post, X or LinkedIn. Either this or draftId. */
+  /** Permalink to the live post, or its Typefully share URL. Either this or draftId. */
   url?: string;
   /** Typefully draft id, when the URL is not to hand. */
   draftId?: string;
@@ -28,12 +28,18 @@ export interface AnnouncePostResult {
   skipped?: "announced" | "claimed";
 }
 
-/** The draft matching the input, by draft id when given and otherwise by permalink. */
+/**
+ * The draft matching the input, by draft id when given and otherwise by URL.
+ *
+ * The URL is matched against both the platform permalinks and Typefully's own
+ * share URL, because the link on a Notion launch page is the share URL — the
+ * post is scheduled there before any permalink exists.
+ */
 function findPost(posts: PublishedPost[], input: AnnouncePostInput): PublishedPost | undefined {
   if (input.draftId !== undefined) {
     return posts.find((p) => p.draftId === input.draftId);
   }
-  return posts.find((p) => p.links.some((l) => l.url === input.url));
+  return posts.find((p) => p.links.some((l) => l.url === input.url) || p.shareUrl === input.url);
 }
 
 /** Raw implementation of amplifier.announcePost. */
