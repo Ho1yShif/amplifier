@@ -16,10 +16,15 @@ const complete: PublishedPost[] = [post("1", EVENT_AT, ["linkedin", "x"])];
 /**
  * A Map-backed Key Value plus a Slack log, both shared across attempts, so a
  * retry sees the markers its predecessor wrote.
+ *
+ * Parents and replies are logged separately, because a cross-post is one note
+ * made of three messages and "how many notes went out" is what the tests check.
  */
 function attempts() {
   const store = new Map<string, string>();
   const slack: string[] = [];
+  const replies: string[] = [];
+  let ts = 0;
 
   function ctxFor(posts: PublishedPost[]) {
     const handlers: TaskHandlers = {
@@ -39,8 +44,12 @@ function attempts() {
         return { ok: true };
       },
       "amplifier.postNote": (input) => {
-        slack.push(String(input.markdown));
-        return { delivered: true };
+        if (input.threadTs) {
+          replies.push(String(input.markdown));
+          return { delivered: true, ts: `17580000.00${(ts += 1)}` };
+        }
+        slack.push(String(input.markdown ?? input.blocks?.[0]?.text?.text));
+        return { delivered: true, ts: `17580000.00${(ts += 1)}` };
       },
       "llm.complete": () => ({ text: "Something shipped.", model: "m", stopReason: "end" }),
     };
@@ -49,6 +58,7 @@ function attempts() {
 
   return {
     slack,
+    replies,
     keys: () => [...store.keys()].sort(),
     run: (posts: PublishedPost[], input: CheckPostsInput) =>
       handleEventImpl(ctxFor(posts), { ...BASE, ...input }, {}),
@@ -68,7 +78,11 @@ describe("handleEventImpl", () => {
 
     expect(second.notified).toBe(1);
     expect(a.slack).toHaveLength(1);
-    expect(a.slack[0]).toContain("|X post>");
+    expect(a.slack[0]).toContain("🧵");
+    expect(a.replies).toEqual([
+      "<https://example.com/linkedin/1|LinkedIn post>",
+      "<https://example.com/x/1|X post>",
+    ]);
   });
 
   it("announces nothing on a retry that follows a delivered post", async () => {

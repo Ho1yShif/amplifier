@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig, MAX_LIMIT } from "../src/config.js";
+import { DEFAULT_REPOST_EMOJI, loadConfig, MAX_LIMIT } from "../src/config.js";
 import { MAX_SETTLE_MINUTES } from "../src/amplifier/retry.js";
 import { DEFAULT_CALL_TO_ACTION } from "../src/amplifier/template.js";
 import { DEFAULT_SUMMARY_MODEL } from "../src/summary/model.js";
@@ -15,6 +15,7 @@ describe("loadConfig", () => {
       callToAction: DEFAULT_CALL_TO_ACTION,
       summaryModel: DEFAULT_SUMMARY_MODEL,
       dryRun: false,
+      repostEmoji: DEFAULT_REPOST_EMOJI,
     });
   });
 
@@ -31,6 +32,10 @@ describe("loadConfig", () => {
         AMPLIFIER_CALL_TO_ACTION: "Boost it.",
         SLACK_CHANNEL: "social",
         DRY_RUN: "true",
+        AMPLIFIER_REPOST_CHANNEL: "#amplify-wider",
+        AMPLIFIER_REPOST_EMOJI: "loudspeaker",
+        SLACK_CLIENT_ID: "1234.5678",
+        SLACK_CLIENT_SECRET: "client-secret",
       },
     );
     expect(config).toEqual({
@@ -44,6 +49,10 @@ describe("loadConfig", () => {
       callToAction: "Boost it.",
       summaryModel: DEFAULT_SUMMARY_MODEL,
       dryRun: true,
+      repostChannel: "amplify-wider",
+      repostEmoji: "loudspeaker",
+      slackClientId: "1234.5678",
+      slackClientSecret: "client-secret",
     });
   });
 

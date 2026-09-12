@@ -10,6 +10,18 @@ export const HANDLE_EVENT_RETRY: Retry = {
   backoffScaling: 2,
 };
 
+/**
+ * Retry policy for amplifier.repost. Backoff over 1s, 2s, 4s, 8s.
+ *
+ * Sized like SLACK_RETRY rather than wider: a person clicked the button and is
+ * waiting for the ephemeral answer, so a long backoff reads as a dead button.
+ */
+export const REPOST_RETRY: Retry = {
+  maxRetries: 4,
+  waitDurationMs: 1_000,
+  backoffScaling: 2,
+};
+
 /** Total backoff a retry policy spends, in minutes. */
 function budgetMinutes({ maxRetries, waitDurationMs, backoffScaling }: Retry): number {
   let waitMs = 0;

@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@hono/node-server':
+        specifier: 2.1.1
+        version: 2.1.1(hono@4.13.5)
       '@render-lab/tasks-core':
         specifier: 0.3.0
         version: 0.3.0(@renderinc/sdk@1.0.0)
@@ -26,6 +29,9 @@ importers:
       '@renderinc/sdk':
         specifier: 1.0.0
         version: 1.0.0
+      hono:
+        specifier: 4.13.5
+        version: 4.13.5
     devDependencies:
       '@render-lab/test-utils':
         specifier: 0.1.0

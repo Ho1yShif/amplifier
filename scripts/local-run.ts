@@ -27,7 +27,9 @@ const env: NodeJS.ProcessEnv = {
   TYPEFULLY_API_KEY: process.env.TYPEFULLY_API_KEY ?? PLACEHOLDER_KEY,
   TYPEFULLY_SOCIAL_SET_ID: process.env.TYPEFULLY_SOCIAL_SET_ID ?? "set_local",
   TYPEFULLY_BASE_URL: process.env.TYPEFULLY_BASE_URL ?? STUB,
-  SLACK_WEBHOOK_URL: process.env.SLACK_WEBHOOK_URL ?? `${STUB}/slack`,
+  SLACK_API_BASE_URL: process.env.SLACK_API_BASE_URL ?? `${STUB}/slack`,
+  SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN ?? PLACEHOLDER_KEY,
+  SLACK_CHANNEL: process.env.SLACK_CHANNEL ?? "amplify-local",
   REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
 };
 

@@ -2,7 +2,7 @@
 
 Amplifier automates the process of sharing new LinkedIn and Twitter posts with the Render team. Whenever a post goes live on Twitter and/or LinkedIn, Amplifier sends a Slack note to the `#amplify` channel.
 
-It reads published drafts from Typefully, which is where the Render Twitter and LinkedIn accounts are scheduled. A post sent to both platforms produces one note with both links.
+It reads published drafts from Typefully, which is where the Render Twitter and LinkedIn accounts are scheduled. A post sent to both platforms produces one Slack thread, with a link per platform as a reply. Anyone in the channel can click Repost on that thread to post it again in a second channel, as themselves.
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Ho1yShif/amplifier)
 
@@ -32,7 +32,7 @@ Workflows yet. Read [Deployment](#deployment) first; the button is step 5.
   4  groupPosts                                   │
   5  llm.complete ────────────────────────────────┼──▶ Anthropic
   6  claimGroup, one kv.lock per draft ───────────┼──▶ amplifier-kv
-  7  amplifier.postNote ──────────────────────────┼──▶ Slack #amplify
+  7  amplifier.postNote, parent then replies ─────┼──▶ Slack #amplify
   8  markAnnounced, then releaseGroup ────────────┴──▶ amplifier-kv
 ```
 
@@ -46,21 +46,21 @@ Typefully posts to the `amplifier-webhook` service when a draft publishes. The r
 4. Groups the rest, when they were published close together on different platforms, into one note.
 5. Asks Claude Sonnet 5, through `llm.complete`, for the one line that opens the note.
 6. Takes a 5-minute lock per draft.
-7. Posts the note through `amplifier.postNote`.
+7. Posts the note through `amplifier.postNote`: a parent message, then one threaded reply per platform link.
 8. Records each draft as announced for 30 days.
 
-`amplifier.postNote` wraps the vendor's `postMessageImpl` and adds `unfurl_links: false` and `unfurl_media: false` to the request body, because `@render-lab/tasks-slack` 0.3.0 sends neither and exposes no option for them. The wrapper can go away once the vendor adds an unfurl option.
+`amplifier.postNote` wraps the vendor's `postMessageImpl` and adds `unfurl_links: false`, `unfurl_media: false` and, on a reply, `thread_ts` to the request body. `@render-lab/tasks-slack` 0.3.0 sends none of them and exposes no option for them. The wrapper can go away once the vendor does.
 
-A note is that one summary line and a link per platform. Two links get bullets; one does not.
+A cross-post is a thread. The parent carries the summary line, a 🧵, and a Repost button; each platform link is a reply.
 
 ```
-Cursor Origin is now a supported Git provider on Render. Help spread the word
-
-• <https://linkedin.com/…|LinkedIn post>
-• <https://x.com/…|X post>
+Cursor Origin is now a supported Git provider on Render. Help spread the word 🧵
+[ Repost to #amplify-wider ]
+  └ <https://linkedin.com/…|LinkedIn post>
+  └ <https://x.com/…|X post>
 ```
 
-A post that only went out on one platform gets no bullet:
+A post that only went out on one platform is one flat message, with no thread and no 🧵:
 
 ```
 Please like/share our new customer story for OpenAI
@@ -68,11 +68,13 @@ Please like/share our new customer story for OpenAI
 <https://x.com/…|X post>
 ```
 
-When the summary call fails, the note still goes out. It opens with `AMPLIFIER_CALL_TO_ACTION`, names the reason, and quotes the draft preview.
+When the summary call fails, the note still goes out. The parent opens with `AMPLIFIER_CALL_TO_ACTION`, names the reason, and quotes the draft preview.
+
+The announced marker is written as soon as the parent is delivered, not after the last reply. A failed reply leaves the thread missing a link, which is logged. The alternative is a later run posting a second parent.
 
 Dedupe is per draft, not per note, so a LinkedIn post that arrives after its Twitter twin was announced still gets its own note.
 
-Delivery is at least once. The announced marker is written after Slack accepts the note, so a run that dies in the gap between the two loses its lock within 5 minutes and the next run posts the same note again. The design accepts a duplicate note so that no note is lost.
+Delivery is at least once. The announced marker is written after Slack accepts the parent, so a run that dies in the gap between the two loses its lock within 5 minutes and the next run posts the same note again. The design accepts a duplicate note so that no note is lost.
 
 ## Local development
 
@@ -96,7 +98,7 @@ pnpm check
 
 ### End-to-end run with no credentials
 
-`scripts/typefully-stub.ts` stands in for both Typefully and a Slack incoming webhook, so the whole announce-once path runs against a local Key Value with no keys:
+`scripts/typefully-stub.ts` stands in for both Typefully and the Slack Web API, so the whole announce-once path runs against a local Key Value with no keys:
 
 ```bash
 redis-server &
@@ -135,20 +137,22 @@ region Oregon, built from `main`.
    | `amplifier-workflow` | `ANTHROPIC_API_KEY`       | An Anthropic API key                                   |
    | `amplifier-workflow` | `TYPEFULLY_API_KEY`       | Typefully Settings > Integrations                      |
    | `amplifier-workflow` | `TYPEFULLY_SOCIAL_SET_ID` | `GET /v2/social-sets` lists them                       |
-   | `amplifier-workflow` | The Slack credential      | See below                                              |
+   | `amplifier-workflow` | `SLACK_BOT_TOKEN`         | See below                                              |
+   | `amplifier-workflow` | `SLACK_CHANNEL`           | The channel the notes go to                            |
 
-   For Slack, with a bot token add `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`. With an incoming webhook add `SLACK_WEBHOOK_URL` alone, because the webhook is locked to one channel and `SLACK_CHANNEL` is ignored.
+   For Slack, add `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`. Both are required. To turn the Repost button on, also add `AMPLIFIER_REPOST_CHANNEL`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` and `SLACK_SIGNING_SECRET` to `amplifier-workflow`, and `SLACK_CLIENT_ID` and `SLACK_SIGNING_SECRET` to `amplifier-triggers`. All four Slack values are on the app's Basic Information page. `AMPLIFIER_PUBLIC_URL` comes later, in step 6, because it is the receiver's own URL. See [Reposting](#reposting).
 
-   `TYPEFULLY_WEBHOOK_SECRET` belongs in `amplifier-triggers` too, but Typefully does not show it until step 10, so leave it out for now. Leave `AMPLIFIER_SUMMARY_MODEL` out as well; `render.yaml` gives it a literal value and the apply adds it to `amplifier-workflow`. `REDIS_URL` comes later, in step 8, because `amplifier-kv` does not exist yet. Nothing here can use `generateValue`; every value is one you paste in.
+   `TYPEFULLY_WEBHOOK_SECRET` belongs in `amplifier-triggers` too, but Typefully does not show it until step 11, so leave it out for now. Leave `AMPLIFIER_SUMMARY_MODEL` out as well; `render.yaml` gives it a literal value and the apply adds it to `amplifier-workflow`. `REDIS_URL` comes later, in step 9, because `amplifier-kv` does not exist yet. Nothing here can use `generateValue`; every value is one you paste in.
 
 5. Apply `render.yaml`, with the Deploy to Render button above or from the Dashboard, to create the `amplifier-webhook` service and the Key Value instance, and to link `amplifier-triggers` to the receiver. The apply asks for no values, because step 4 set them all.
-6. Confirm `amplifier-kv` landed in region Oregon. `render.yaml` names Oregon, so it should. The Workflow service reaches it over the private network as long as both are in Oregon in the same workspace; the project and the environment do not have to match.
-7. On the Workflow service, link the `amplifier-workflow` env group. The group holds every variable the Workflow service reads, and it is linked in the Dashboard because Blueprints do not support Workflow services, so `render.yaml` cannot reference it.
-8. Add `REDIS_URL` to `amplifier-workflow`, set to the `amplifier-kv` internal connection string from its Dashboard page. Do not copy the value from `.env` or `.env.example`; those hold `redis://localhost:6379` for local dev, and on Render nothing listens there. A run using it fails every Key Value task with repeated `[ioredis] Unhandled error event: AggregateError [ECONNREFUSED]` and `Reached the max retries per request limit (which is 20)`.
-9. Confirm the link took: the Workflow service's environment page lists `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5` from the group. If it does not, the group exists but is not linked, and every note will carry `(Summarization LLM call failed)`.
-10. Register the receiver in Typefully, following [Registering the Typefully webhook](#registering-the-typefully-webhook) below.
-11. Add `DRY_RUN=true` to `amplifier-workflow`, publish a couple of posts, and read the Workflow logs. Each note the run would have sent is logged after `[dry run] would post:`.
-12. Remove `DRY_RUN` from `amplifier-workflow` so runs post to Slack.
+6. Point the Slack app at the receiver, now that it has a hostname. On the app's pages set **Interactivity & Shortcuts > Request URL** to `<receiver>/slack/interactivity` and **OAuth & Permissions > Redirect URLs** to `<receiver>/slack/oauth/callback`, then add `AMPLIFIER_PUBLIC_URL` to `amplifier-workflow`, set to the receiver's base URL. The Workflow service builds the authorize link and has no external URL of its own. Skip this step if you are not using the Repost button.
+7. Confirm `amplifier-kv` landed in region Oregon. `render.yaml` names Oregon, so it should. The Workflow service reaches it over the private network as long as both are in Oregon in the same workspace; the project and the environment do not have to match.
+8. On the Workflow service, link the `amplifier-workflow` env group. The group holds every variable the Workflow service reads, and it is linked in the Dashboard because Blueprints do not support Workflow services, so `render.yaml` cannot reference it.
+9. Add `REDIS_URL` to `amplifier-workflow`, set to the `amplifier-kv` internal connection string from its Dashboard page. Do not copy the value from `.env` or `.env.example`; those hold `redis://localhost:6379` for local dev, and on Render nothing listens there. A run using it fails every Key Value task with repeated `[ioredis] Unhandled error event: AggregateError [ECONNREFUSED]` and `Reached the max retries per request limit (which is 20)`.
+10. Confirm the link took: the Workflow service's environment page lists `AMPLIFIER_SUMMARY_MODEL` with the value `anthropic/claude-sonnet-5` from the group. If it does not, the group exists but is not linked, and every note will carry `(Summarization LLM call failed)`.
+11. Register the receiver in Typefully, following [Registering the Typefully webhook](#registering-the-typefully-webhook) below.
+12. Add `DRY_RUN=true` to `amplifier-workflow`, publish a couple of posts, and read the Workflow logs. The parent is logged after `[dry run] would post:` and each threaded link after `[dry run] would reply:`, in the order a real run would send them. Check the thread shape here before the first real note.
+13. Remove `DRY_RUN` from `amplifier-workflow` so runs post to Slack.
 
 ### Creating the Workflow service
 
@@ -243,7 +247,13 @@ render workflows start <slug>/amplifier.checkPosts --input='[{}]'
 
 ### Security
 
-The receiver's URL is public, and `verify` is the only thing gating it. A delivery whose HMAC-SHA256 signature does not match `TYPEFULLY_WEBHOOK_SECRET` gets a 401 and starts no run, and so does one whose timestamp is more than 15 minutes from the receiver's clock. `POST /tasks/:task` stays shut because `DISPATCH_TOKEN` is unset, which makes that route answer 401 to everything. Do not set it.
+The receiver's URL is public, and a signature check is the only thing gating each route.
+
+A Typefully delivery whose HMAC-SHA256 signature does not match `TYPEFULLY_WEBHOOK_SECRET` gets a 401 and starts no run, and so does one whose timestamp is more than 15 minutes from the receiver's clock.
+
+`POST /slack/interactivity` recomputes Slack's own HMAC-SHA256 over `v0:{timestamp}:{body}` with `SLACK_SIGNING_SECRET` and rejects a timestamp more than five minutes from the clock. `GET /slack/oauth/callback` takes no signature, so the `state` on the authorize link carries the clicker's user id plus an expiry, HMAC-signed with the same secret. Without that signature anyone could complete the callback and have their own token stored under someone else's id.
+
+`POST /tasks/:task` stays shut because `DISPATCH_TOKEN` is unset, which makes that route answer 401 to everything. Do not set it.
 
 ## Slack credentials
 
@@ -252,26 +262,67 @@ Pick the Slack channel the notes will go to. If the production channel is busy, 
 `slack-app-manifest.yaml` defines the app. At <https://api.slack.com/apps>, choose
 **Create New App > From a manifest > Continue**, pick the workspace, and paste the file as YAML. Click **Next > Create and Install**.
 
-The manifest requests both `chat:write` and `incoming-webhook`, so either credential
-below works. To change the app later, edit the file and paste it into **App Manifest**
-on the app's settings page.
+The manifest requests `chat:write` and `reactions:write` for the bot, and `chat:write` for
+a user. To change the app later, edit the file and paste it into **App Manifest** on the
+app's settings page. A scope change requires a reinstall, which mints a new bot token, so
+update `SLACK_BOT_TOKEN` afterwards.
 
-Slack should install the app to the workspace for you. Slack asks which channel the webhook posts to,
-and both credentials show up on the app's pages afterwards. Copy one of these two, and add it to the
-`amplifier-workflow` env group in deployment step 4:
+The two URLs in the manifest point at the `amplifier-webhook` receiver, which does not
+exist until the Blueprint is applied. Deployment step 6 fills them in.
 
-- **`SLACK_WEBHOOK_URL`** is the URL on the app's **Incoming Webhooks** page. It is
-  locked to the channel you picked during install, so `SLACK_CHANNEL` is ignored and
-  switching channels means a new webhook.
-- **`SLACK_BOT_TOKEN`** is the `xoxb-` token on **OAuth & Permissions**. It makes
-  `SLACK_CHANNEL` pick the channel, and you `/invite` the bot there first. The
-  leading `#` is optional.
+Copy these into the env groups in deployment step 4:
 
-Set one of them. If neither is set, `amplifier.postNote` throws and the run ends
-`failed`. That is deliberate: a run that cannot post must not report success.
+- **`SLACK_BOT_TOKEN`** is the `xoxb-` token on **OAuth & Permissions**. Goes in
+  `amplifier-workflow`. `/invite` the bot to the channel first.
+- **`SLACK_CHANNEL`** is the channel the notes go to. Goes in `amplifier-workflow`. The
+  leading `#` is optional. If the production channel is busy, use a test channel first.
+- **`SLACK_SIGNING_SECRET`** is on **Basic Information**. Goes in both groups, with the same
+  value. The receiver verifies Repost clicks with it, and `amplifier.repost` signs the
+  authorize link's `state` with it.
+- **`SLACK_CLIENT_ID`** and **`SLACK_CLIENT_SECRET`** are on **Basic Information** too.
+  The id goes in both groups; the secret goes in `amplifier-workflow` only, because
+  `amplifier.saveUserToken` is the only thing that reads it.
 
-Both credentials are minted during install, so neither can be committed alongside the
-manifest.
+Both `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` are required. Without either,
+`amplifier.postNote` throws and the run ends `failed`. That is deliberate: a run that
+cannot post must not report success. Threading needs the parent message's `ts`, and only
+the Web API route returns one.
+
+The token is minted during install, so it cannot be committed alongside the manifest.
+
+### Migrating an existing deployment
+
+The incoming-webhook path is gone, so a deployment that used `SLACK_WEBHOOK_URL` needs four changes:
+
+1. Paste the updated `slack-app-manifest.yaml` into the Slack app and reinstall it. The scope change mints a new bot token, so update `SLACK_BOT_TOKEN`.
+2. Remove `SLACK_WEBHOOK_URL` from `amplifier-workflow`, and confirm `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` are both set and the bot is in the source channel.
+3. Set the Slack app's Interactivity Request URL and OAuth Redirect URL, as in deployment step 6, if you want the Repost button.
+4. Redeploy both services.
+
+## Reposting
+
+When `AMPLIFIER_REPOST_CHANNEL` is set, the parent of every cross-post thread carries a
+**Repost to #<channel>** button. Anyone in the source channel can click it. The thread is
+posted again in the repost channel, as the clicker rather than as the bot, and the source
+parent gets an `AMPLIFIER_REPOST_EMOJI` reaction and a "Reposted by" reply.
+
+The first click asks for a one-time authorization. Amplifier has no token for that person
+yet, so it answers privately with an authorize link. Approving it grants `chat:write` for
+that one person, and clicking Repost again does the repost. The token is stored in
+`amplifier-kv` with no expiry, so nobody has to authorize twice.
+
+Every person who clicks has to be a member of the repost channel. Slack answers
+`not_in_channel` when they are not, and amplifier answers privately asking them to join
+it. The bot never posts in the repost channel and does not need to be a member.
+
+The button stays live after a click, so a second click reposts again. Reposted threads
+carry no button, so a repost cannot itself be reposted.
+
+`amplifier.repost` reads the thread's text from `amplifier-kv`, not from Slack. The record
+carries the same 30-day TTL as the announced marker, so an older note answers that it is
+too old to repost.
+
+Unset `AMPLIFIER_REPOST_CHANNEL` to turn all of this off: no button, no stored note.
 
 ## Configuration
 
@@ -280,9 +331,9 @@ manifest.
 | `TYPEFULLY_API_KEY`              | —                           | —     | Required. Typefully Settings > Integrations.                                                                                                                                                                                                         |
 | `TYPEFULLY_SOCIAL_SET_ID`        | —                           | —     | Required. `GET /v2/social-sets` lists them.                                                                                                                                                                                                          |
 | `TYPEFULLY_BASE_URL`             | Typefully                   | —     | Local stub only. The API key goes to whatever host this names.                                                                                                                                                                                       |
-| `SLACK_WEBHOOK_URL`              | —                           | —     | Incoming webhook. Locked to the channel you created it for.                                                                                                                                                                                          |
-| `SLACK_BOT_TOKEN`                | —                           | —     | Bot token. Required for `SLACK_CHANNEL` to be honored.                                                                                                                                                                                               |
-| `SLACK_CHANNEL`                  | —                           | —     | Channel the note goes to, with or without a leading `#`. Needs `SLACK_BOT_TOKEN`, and a bot token with no channel fails the run, so set both or use the webhook alone.                                                                               |
+| `SLACK_BOT_TOKEN`                | —                           | —     | Required. The `xoxb-` bot token.                                                                                                                                                                                                                     |
+| `SLACK_CHANNEL`                  | —                           | —     | Required. Channel the note goes to, with or without a leading `#`. Missing either this or the bot token fails the run.                                                                                                                               |
+| `SLACK_API_BASE_URL`             | Slack                       | —     | Local stub only. The bot token goes to whatever host this names.                                                                                                                                                                                     |
 | `ANTHROPIC_API_KEY`              | —                           | —     | Required for the summary. Without it the note carries the fallback lead line.                                                                                                                                                                        |
 | `REDIS_URL`                      | —                           | —     | Required. The `amplifier-kv` internal connection string.                                                                                                                                                                                             |
 | `DRY_RUN`                        | `false`                     | —     | Set to exactly `true` to log the note instead of posting to Slack.                                                                                                                                                                                   |
@@ -293,6 +344,12 @@ manifest.
 | `AMPLIFIER_LIMIT`                | `25`                        | 1–50  | Drafts pulled per run, and the run's widest burst of concurrent Key Value calls.                                                                                                                                                                     |
 | `AMPLIFIER_CALL_TO_ACTION`       | see below                   | —     | The lead line used when the summary fails.                                                                                                                                                                                                           |
 | `AMPLIFIER_SUMMARY_MODEL`        | `anthropic/claude-sonnet-5` | —     | The model that writes the lead line. The provider prefix is required. Takes precedence over `tasks-llm`'s own `LLM_MODEL`.                                                                                                                           |
+| `AMPLIFIER_REPOST_CHANNEL`       | —                           | —     | Channel the Repost button posts to. Unset means no button and no stored note. See [Reposting](#reposting).                                                                                                                                           |
+| `AMPLIFIER_REPOST_EMOJI`         | `white_check_mark`          | —     | Reaction added to a note that has been reposted. Must be an emoji the workspace has, or `reactions.add` answers `invalid_name`.                                                                                                                      |
+| `SLACK_CLIENT_ID`                | —                           | —     | Needed for the user-token exchange. Slack app, Basic Information.                                                                                                                                                                                    |
+| `SLACK_CLIENT_SECRET`            | —                           | —     | Needed for the user-token exchange. Read only by `amplifier.saveUserToken`, so it never reaches the receiver.                                                                                                                                        |
+| `SLACK_SIGNING_SECRET`           | —                           | —     | Signs the authorize link's `state`. Must be the same value the receiver has, or the receiver rejects the link.                                                                                                                                       |
+| `AMPLIFIER_PUBLIC_URL`           | —                           | —     | The receiver's base URL, such as `https://amplifier-webhook.onrender.com`. Required for the Repost button, because the Workflow service has no `RENDER_EXTERNAL_URL` of its own.                                                                     |
 
 A numeric variable set to a fraction, to something non-numeric, or to a value outside
 its range fails the run with the variable's name in the error. Every variable with a
@@ -308,12 +365,15 @@ Every variable above reaches the Workflow service through the `amplifier-workflo
 
 The table above covers the Workflow service. These variables belong to the `amplifier-webhook` service. They reach it through the `amplifier-triggers` env group, so set them there rather than on the service. `render.yaml` gives the service only `fromGroup: amplifier-triggers`, and a variable added straight to the service is removed on the next Blueprint sync.
 
-| Variable                   | Default | Range | Notes                                                                                                   |
-| -------------------------- | ------- | ----- | ------------------------------------------------------------------------------------------------------- |
-| `RENDER_API_KEY`           | —       | —     | Required. Authenticates the dispatch call to the Render API.                                            |
-| `WORKFLOW_SLUG`            | —       | —     | Required. Set by hand in the Dashboard to the Workflow service's slug, `amplifier` for the Render team. |
-| `TYPEFULLY_WEBHOOK_SECRET` | —       | —     | Required. The signing secret from Typefully, Settings > API. Unset means every delivery gets a 401.     |
-| `PORT`                     | `3000`  | —     | Render sets this. Only needed to run the receiver locally.                                              |
+| Variable                   | Default               | Range | Notes                                                                                                   |
+| -------------------------- | --------------------- | ----- | ------------------------------------------------------------------------------------------------------- |
+| `RENDER_API_KEY`           | —                     | —     | Required. Authenticates the dispatch call to the Render API.                                            |
+| `WORKFLOW_SLUG`            | —                     | —     | Required. Set by hand in the Dashboard to the Workflow service's slug, `amplifier` for the Render team. |
+| `TYPEFULLY_WEBHOOK_SECRET` | —                     | —     | Required. The signing secret from Typefully, Settings > API. Unset means every delivery gets a 401.     |
+| `SLACK_SIGNING_SECRET`     | —                     | —     | Verifies Repost clicks and signs the OAuth `state`. Unset means every Slack request gets a 401.         |
+| `SLACK_CLIENT_ID`          | —                     | —     | Builds the authorize link. The client secret does not belong here.                                      |
+| `AMPLIFIER_PUBLIC_URL`     | `RENDER_EXTERNAL_URL` | —     | The receiver's own base URL, used to build the OAuth redirect. Only needed locally.                     |
+| `PORT`                     | `3000`                | —     | Render sets this. Only needed to run the receiver locally.                                              |
 
 ## Adding Twitter or LinkedIn directly
 

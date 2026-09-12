@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CALL_TO_ACTION, notePlatforms, renderNote } from "../src/amplifier/template.js";
+import type { SlackBlock } from "@render-lab/tasks-slack";
+import {
+  DEFAULT_CALL_TO_ACTION,
+  notePlatforms,
+  REPOST_ACTION_ID,
+  renderChildren,
+  renderFlatNote,
+  renderParent,
+  withoutRepostButton,
+} from "../src/amplifier/template.js";
 import type { PostGroup } from "../src/amplifier/group.js";
 import { group } from "./support/fixtures.js";
 
@@ -16,75 +25,162 @@ const crossPost = group({
   ],
 });
 
-describe("renderNote", () => {
-  it("links every platform in one message", () => {
-    const note = renderNote(crossPost);
-    expect(note.markdown).toContain("<https://x.com/render/status/1|X post>");
-    expect(note.markdown).toContain("<https://linkedin.com/feed/update/2|LinkedIn post>");
+const singleLink: PostGroup = {
+  ...crossPost,
+  links: [
+    { platform: "x", url: "https://x.com/render/status/1", publishedAt: crossPost.publishedAt },
+  ],
+};
+
+/** The text of every section block, joined the way Slack stacks them. */
+function sectionText(blocks: SlackBlock[] | undefined): string {
+  return (blocks ?? [])
+    .flatMap((b) => {
+      const text = (b as { text?: { text?: unknown } }).text?.text;
+      return b["type"] === "section" && typeof text === "string" ? [text] : [];
+    })
+    .join("\n\n");
+}
+
+/** The one actions block, or undefined when the parent carries no button. */
+function actionsBlock(blocks: SlackBlock[] | undefined): SlackBlock | undefined {
+  return (blocks ?? []).find((b) => b["type"] === "actions");
+}
+
+describe("renderParent", () => {
+  it("uses the summary as the whole body and marks the thread", () => {
+    const parent = renderParent(crossPost, { summary: "Cold starts are 40% faster." });
+    expect(sectionText(parent.blocks)).toBe("Cold starts are 40% faster. 🧵");
   });
 
-  it("puts LinkedIn before X", () => {
-    const md = renderNote(crossPost).markdown ?? "";
-    expect(md.indexOf("|LinkedIn post>")).toBeLessThan(md.indexOf("|X post>"));
+  it("carries no platform link, because the links are replies", () => {
+    const body = sectionText(renderParent(crossPost, { summary: "Faster." }).blocks);
+    expect(body).not.toContain("https://x.com");
+    expect(body).not.toContain("https://linkedin.com");
   });
 
-  it("quotes the preview", () => {
-    expect(renderNote(crossPost).markdown).toContain("> We cut cold starts on Render by 40%.");
+  it("supplies blocks and no markdown, so the button survives rendering", () => {
+    const parent = renderParent(crossPost, { summary: "Faster." });
+    expect(parent.markdown).toBeUndefined();
+    expect(parent.blocks?.[0]).toMatchObject({ type: "section" });
   });
 
-  it("opens with the call to action", () => {
-    expect(
-      renderNote(crossPost).markdown?.startsWith(
-        "New Render social post! Please like and share when you have a minute",
-      ),
-    ).toBe(true);
+  it("falls back to the call to action, the failure and the quote", () => {
+    const body = sectionText(
+      renderParent(crossPost, { summaryError: "401 invalid x-api-key" }).blocks,
+    );
+    expect(body.startsWith(`${DEFAULT_CALL_TO_ACTION} 🧵`)).toBe(true);
+    expect(body).toContain("_(Summarization LLM call failed: 401 invalid x-api-key)_");
+    expect(body).toContain("> We cut cold starts on Render by 40%.");
   });
 
   it("takes a custom call to action", () => {
-    const note = renderNote(crossPost, { callToAction: "Boost it please." });
-    expect(note.markdown).toContain("Boost it please.");
-  });
-
-  it("falls back to the default when the call to action is empty", () => {
-    const note = renderNote(crossPost, { callToAction: "" });
-    expect(note.markdown?.startsWith(DEFAULT_CALL_TO_ACTION)).toBe(true);
+    const body = sectionText(renderParent(crossPost, { callToAction: "Boost it please." }).blocks);
+    expect(body.startsWith("Boost it please. 🧵")).toBe(true);
   });
 
   it("falls back to the default when the call to action is whitespace-only", () => {
-    const note = renderNote(crossPost, { callToAction: "   " });
-    expect(note.markdown?.startsWith(DEFAULT_CALL_TO_ACTION)).toBe(true);
+    const body = sectionText(renderParent(crossPost, { callToAction: "   " }).blocks);
+    expect(body.startsWith(DEFAULT_CALL_TO_ACTION)).toBe(true);
   });
 
-  it("sets no title and a plain-text fallback with no bare URL", () => {
-    const note = renderNote(crossPost);
-    expect(note.title).toBeUndefined();
-    expect(note.text).not.toContain("https://");
+  it("names one platform the settle deadline dropped", () => {
+    const body = sectionText(
+      renderParent(crossPost, { summary: "Faster.", droppedPlatforms: ["x"] }).blocks,
+    );
+    expect(body).toContain("_X had not published yet, so there is no link for it._");
+  });
+
+  it("names both dropped platforms in display order", () => {
+    const body = sectionText(
+      renderParent(crossPost, { summary: "Faster.", droppedPlatforms: ["x", "linkedin"] }).blocks,
+    );
+    expect(body).toContain(
+      "_LinkedIn and X had not published yet, so there are no links for them._",
+    );
+  });
+
+  it("adds no dropped line when nothing was dropped", () => {
+    expect(sectionText(renderParent(crossPost, { summary: "Faster." }).blocks)).not.toContain(
+      "had not published yet",
+    );
+  });
+
+  it("sets the notification fallback to the lead line with no 🧵 and no URL", () => {
+    const parent = renderParent(crossPost, { summary: "Cold starts are 40% faster." });
+    expect(parent.text).toBe("Cold starts are 40% faster.");
+    expect(parent.text).not.toContain("https://");
   });
 
   it("passes the channel through", () => {
-    expect(renderNote(crossPost, { channel: "#social" }).channel).toBe("#social");
+    expect(renderParent(crossPost, { channel: "#social" }).channel).toBe("#social");
   });
 
   it("omits the channel when none is given", () => {
-    expect(renderNote(crossPost).channel).toBeUndefined();
+    expect(renderParent(crossPost).channel).toBeUndefined();
   });
 
-  it("quotes one preview per draft when drafts merged", () => {
-    const merged: PostGroup = {
-      draftIds: ["1", "2"],
-      previews: ["first", "second"],
-      publishedAt: "2026-09-04T15:00:00Z",
-      links: [
-        { platform: "x", url: "https://x.com/a", publishedAt: "2026-09-04T15:00:00Z" },
+  it("carries the Repost button with a channel and a note key", () => {
+    const parent = renderParent(crossPost, {
+      summary: "Faster.",
+      repostChannel: "amplify-wider",
+      noteKey: "amplifier:note:1",
+    });
+    expect(actionsBlock(parent.blocks)).toEqual({
+      type: "actions",
+      elements: [
         {
-          platform: "linkedin",
-          url: "https://linkedin.com/b",
-          publishedAt: "2026-09-04T15:04:00Z",
+          type: "button",
+          action_id: REPOST_ACTION_ID,
+          text: { type: "plain_text", text: "Repost to #amplify-wider", emoji: true },
+          value: "amplifier:note:1",
         },
       ],
+    });
+  });
+
+  it("carries no button without a repost channel", () => {
+    const parent = renderParent(crossPost, { summary: "Faster.", noteKey: "amplifier:note:1" });
+    expect(actionsBlock(parent.blocks)).toBeUndefined();
+  });
+
+  it("carries no button without a note key", () => {
+    const parent = renderParent(crossPost, { summary: "Faster.", repostChannel: "amplify-wider" });
+    expect(actionsBlock(parent.blocks)).toBeUndefined();
+  });
+});
+
+describe("renderChildren", () => {
+  it("returns one reply per platform, LinkedIn first", () => {
+    const replies = renderChildren(crossPost);
+    expect(replies).toHaveLength(2);
+    expect(replies[0]?.markdown).toBe("<https://linkedin.com/feed/update/2|LinkedIn post>");
+    expect(replies[1]?.markdown).toBe("<https://x.com/render/status/1|X post>");
+  });
+
+  it("labels each reply for the notification fallback, with no URL", () => {
+    const replies = renderChildren(crossPost);
+    expect(replies.map((r) => r.text)).toEqual(["LinkedIn post", "X post"]);
+    expect(replies.every((r) => !r.text.includes("https://"))).toBe(true);
+  });
+
+  it("passes the channel through to every reply", () => {
+    expect(renderChildren(crossPost, { channel: "#social" }).map((r) => r.channel)).toEqual([
+      "#social",
+      "#social",
+    ]);
+  });
+
+  it("keeps one reply per platform when two drafts share a platform", () => {
+    const dupe: PostGroup = {
+      ...crossPost,
+      links: [
+        { platform: "x", url: "https://x.com/a", publishedAt: "2026-09-04T15:00:00Z" },
+        { platform: "x", url: "https://x.com/b", publishedAt: "2026-09-04T15:01:00Z" },
+      ],
     };
-    expect(renderNote(merged).markdown).toContain("> first");
-    expect(renderNote(merged).markdown).toContain("> second");
+    expect(notePlatforms(dupe)).toEqual(["x"]);
+    expect(renderChildren(dupe).map((r) => r.markdown)).toEqual(["<https://x.com/a|X post>"]);
   });
 
   it("falls back to the Typefully draft when a permalink is missing", () => {
@@ -92,7 +188,7 @@ describe("renderNote", () => {
       ...crossPost,
       links: [{ platform: "x", publishedAt: "2026-09-04T15:00:00Z" }],
     };
-    expect(renderNote(pending).markdown).toContain(
+    expect(renderChildren(pending)[0]?.markdown).toBe(
       "<https://typefully.com/t/abc|X post (Typefully draft)>",
     );
   });
@@ -104,104 +200,72 @@ describe("renderNote", () => {
       publishedAt: "2026-09-04T15:00:00Z",
       links: [{ platform: "x", publishedAt: "2026-09-04T15:00:00Z" }],
     };
-    expect(renderNote(pending).markdown).toContain("X post (link pending)");
+    expect(renderChildren(pending)[0]?.markdown).toBe("X post (link pending)");
   });
+});
 
-  it("keeps one link per platform when two drafts share a platform", () => {
-    const dupe: PostGroup = {
-      draftIds: ["1"],
-      previews: ["p"],
-      publishedAt: "2026-09-04T15:00:00Z",
-      links: [
-        { platform: "x", url: "https://x.com/a", publishedAt: "2026-09-04T15:00:00Z" },
-        { platform: "x", url: "https://x.com/b", publishedAt: "2026-09-04T15:01:00Z" },
-      ],
-    };
-    expect(notePlatforms(dupe)).toEqual(["x"]);
-    expect(renderNote(dupe).markdown).not.toContain("https://x.com/b");
-  });
-
-  it("uses the summary as the whole lead line", () => {
+describe("renderFlatNote", () => {
+  it("holds the lead line and the link in one message, with no 🧵", () => {
     const md =
-      renderNote(crossPost, { summary: "Cold starts are 40% faster. Please amplify!" }).markdown ??
-      "";
-    expect(md.startsWith("Cold starts are 40% faster. Please amplify!")).toBe(true);
-    expect(md).not.toContain("New Render social post!");
+      renderFlatNote(singleLink, { summary: "Cold starts are 40% faster." }).markdown ?? "";
+    expect(md).toBe("Cold starts are 40% faster.\n\n<https://x.com/render/status/1|X post>");
+    expect(md).not.toContain("🧵");
   });
 
-  it("drops the preview quote when there is a summary", () => {
-    const md = renderNote(crossPost, { summary: "Cold starts are 40% faster." }).markdown ?? "";
-    expect(md).not.toContain("> We cut cold starts on Render by 40%.");
+  it("does not bullet the one link", () => {
+    expect(renderFlatNote(singleLink, { summary: "Faster." }).markdown).not.toContain("•");
   });
 
-  it("still links every platform under a summary", () => {
-    const md = renderNote(crossPost, { summary: "Cold starts are 40% faster." }).markdown ?? "";
-    expect(md).toContain("• <https://linkedin.com/feed/update/2|LinkedIn post>");
-    expect(md).toContain("• <https://x.com/render/status/1|X post>");
-  });
-
-  it("names the failure and keeps the quote when there is no summary", () => {
-    const md = renderNote(crossPost, { summaryError: "401 invalid x-api-key" }).markdown ?? "";
-    expect(md).toContain("_(Summarization LLM call failed: 401 invalid x-api-key)_");
+  it("keeps the fallback lead line, the failure and the quote", () => {
+    const md = renderFlatNote(singleLink, { summaryError: "boom" }).markdown ?? "";
+    expect(md.startsWith(DEFAULT_CALL_TO_ACTION)).toBe(true);
+    expect(md).toContain("_(Summarization LLM call failed: boom)_");
     expect(md).toContain("> We cut cold starts on Render by 40%.");
-    expect(md.startsWith("New Render social post!")).toBe(true);
   });
 
-  it("drops the bullet when only one platform has a link", () => {
-    const single: PostGroup = {
-      ...crossPost,
-      links: [
-        { platform: "x", url: "https://x.com/render/status/1", publishedAt: crossPost.publishedAt },
-      ],
+  it("quotes one preview per draft when drafts merged", () => {
+    const merged: PostGroup = {
+      ...singleLink,
+      draftIds: ["1", "2"],
+      previews: ["first", "second"],
     };
-    const md = renderNote(single, { summary: "Cold starts are 40% faster." }).markdown ?? "";
-    expect(md).toContain("<https://x.com/render/status/1|X post>");
-    expect(md).not.toContain("•");
+    const md = renderFlatNote(merged).markdown ?? "";
+    expect(md).toContain("> first");
+    expect(md).toContain("> second");
   });
 
-  it("drops the bullet on a single pending link", () => {
-    const pending: PostGroup = {
-      ...crossPost,
-      links: [{ platform: "linkedin", publishedAt: crossPost.publishedAt }],
-    };
-    expect(renderNote(pending).markdown).not.toContain("•");
-  });
-
-  it("keeps the bullets when both platforms have links", () => {
-    const md = renderNote(crossPost, { summary: "Cold starts are 40% faster." }).markdown ?? "";
-    expect(md).toContain("• <https://linkedin.com/feed/update/2|LinkedIn post>");
-    expect(md).toContain("• <https://x.com/render/status/1|X post>");
-  });
-
-  it("names one platform the settle deadline dropped", () => {
+  it("names a dropped platform", () => {
     const md =
-      renderNote(crossPost, { summary: "Cold starts are 40% faster.", droppedPlatforms: ["x"] })
-        .markdown ?? "";
-    expect(md).toContain("_X had not published yet, so there is no link for it._");
+      renderFlatNote(singleLink, { summary: "Faster.", droppedPlatforms: ["linkedin"] }).markdown ??
+      "";
+    expect(md).toContain("_LinkedIn had not published yet, so there is no link for it._");
   });
 
-  it("names both platforms in display order when the deadline dropped both", () => {
-    const md =
-      renderNote(crossPost, {
-        summary: "Cold starts are 40% faster.",
-        droppedPlatforms: ["x", "linkedin"],
-      }).markdown ?? "";
-    expect(md).toContain("_LinkedIn and X had not published yet, so there are no links for them._");
-  });
-
-  it("adds no dropped line when nothing was dropped", () => {
-    const md = renderNote(crossPost, { summary: "Cold starts are 40% faster." }).markdown ?? "";
-    expect(md).not.toContain("had not published yet");
-  });
-
-  it("sets the notification fallback to the summary and no URL", () => {
-    const note = renderNote(crossPost, { summary: "Cold starts are 40% faster." });
-    expect(note.text).toBe("Cold starts are 40% faster.");
+  it("sets no title and a plain-text fallback with no bare URL", () => {
+    const note = renderFlatNote(singleLink, { summary: "Faster." });
+    expect(note.title).toBeUndefined();
     expect(note.text).not.toContain("https://");
   });
 
-  it("keeps no URL in the notification fallback when the summary failed", () => {
-    const note = renderNote(crossPost, { summaryError: "boom" });
-    expect(note.text).not.toContain("https://");
+  it("passes the channel through", () => {
+    expect(renderFlatNote(singleLink, { channel: "#social" }).channel).toBe("#social");
+  });
+});
+
+describe("withoutRepostButton", () => {
+  it("drops the actions block and keeps the sections", () => {
+    const parent = renderParent(crossPost, {
+      summary: "Faster.",
+      repostChannel: "amplify-wider",
+      noteKey: "k",
+    });
+    const stripped = withoutRepostButton(parent);
+    expect(actionsBlock(stripped.blocks)).toBeUndefined();
+    expect(sectionText(stripped.blocks)).toBe("Faster. 🧵");
+  });
+
+  it("leaves a message with no blocks alone", () => {
+    const flat = renderFlatNote(singleLink, { summary: "Faster." });
+    expect(withoutRepostButton(flat)).toEqual(flat);
   });
 });

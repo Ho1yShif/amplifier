@@ -1,11 +1,19 @@
 import type { TaskContext } from "@renderinc/sdk/workflows";
+import type { PostMessageInput } from "@render-lab/tasks-slack";
 import type { AmplifierConfig } from "../config.js";
 import { postNote } from "../slack/postNote.js";
 import { isSummary, summarizeGroup } from "../summary/summarize.js";
 import type { Platform } from "../typefully/types.js";
 import type { PostGroup } from "./group.js";
 import { claimGroup, isClaimed, markAnnounced, releaseGroup } from "./seen.js";
-import { notePlatforms, renderNote } from "./template.js";
+import { noteKey, storeNote } from "./storedNote.js";
+import {
+  notePlatforms,
+  renderChildren,
+  renderFlatNote,
+  renderParent,
+  type RenderNoteOptions,
+} from "./template.js";
 
 /** One announcement's outcome. */
 export interface NoteResult {
@@ -15,6 +23,8 @@ export interface NoteResult {
   delivered: boolean;
   /** Whether the model wrote this note's lead line. False means the fallback text. */
   summarized: boolean;
+  /** The parent message's `ts`, when the note was posted as a thread. */
+  threadTs?: string;
 }
 
 export interface AnnounceOptions {
@@ -72,20 +82,32 @@ export async function announceGroups(
         ? opts.droppedFor.platforms
         : [];
 
-    const message = renderNote(group, {
+    const noteOpts: RenderNoteOptions = {
       ...(config.slackChannel ? { channel: config.slackChannel } : {}),
       callToAction: config.callToAction,
       ...(isSummary(summary) ? { summary: summary.line } : { summaryError: summary.error }),
       ...(dropped.length > 0 ? { droppedPlatforms: dropped } : {}),
-    });
+    };
     const platforms = notePlatforms(group);
+    const replies = platforms.length > 1 ? renderChildren(group, noteOpts) : [];
+    const key = noteKey(group.draftIds);
+    const parent =
+      replies.length > 0
+        ? renderParent(group, {
+            ...noteOpts,
+            ...(config.repostChannel ? { repostChannel: config.repostChannel, noteKey: key } : {}),
+          })
+        : renderFlatNote(group, noteOpts);
 
     let delivered = false;
+    let threadTs: string | undefined;
     if (config.dryRun) {
-      console.log(`[dry run] would post:\n${message.markdown ?? message.text}`);
+      logDryRun(parent, replies);
     } else {
       try {
-        ({ delivered } = await ctx.run(postNote, message));
+        const posted = await ctx.run(postNote, parent);
+        delivered = posted.delivered;
+        threadTs = posted.ts;
         if (delivered) {
           await markAnnounced(ctx, group.draftIds, config.seenTtlSeconds);
         }
@@ -103,6 +125,11 @@ export async function announceGroups(
           `[amplifier] The Slack port reported the note for ${group.draftIds.join(", ")} ` +
             `undelivered. Those drafts stay unannounced and a later run retries them.`,
         );
+      } else if (replies.length > 0) {
+        if (config.repostChannel) {
+          await storeNote(ctx, key, { parent, replies }, config.seenTtlSeconds);
+        }
+        await postReplies(ctx, group, replies, threadTs);
       }
     }
     await releaseGroup(ctx, claims);
@@ -111,8 +138,70 @@ export async function announceGroups(
       platforms,
       delivered,
       summarized: isSummary(summary),
+      ...(threadTs ? { threadTs } : {}),
     });
   }
 
   return { notes, skipped };
+}
+
+/**
+ * Post the thread's replies, in order.
+ *
+ * Sequential and not `Promise.all`, because the order the links appear in the
+ * thread is part of the format.
+ *
+ * A failed reply is logged rather than thrown. The announced marker is already
+ * written, so throwing here would leave the drafts unmarked and a later run
+ * would post a second parent; a thread missing one link is the smaller problem.
+ * Each reply is its own subtask under SLACK_RETRY, so a transient failure has
+ * already been retried by the time this catches.
+ */
+async function postReplies(
+  ctx: TaskContext,
+  group: PostGroup,
+  replies: PostMessageInput[],
+  threadTs: string | undefined,
+): Promise<void> {
+  if (threadTs === undefined) {
+    console.error(
+      `[amplifier] Slack returned no ts for the note on ${group.draftIds.join(", ")}, so its ` +
+        `${replies.length} links cannot be posted as replies.`,
+    );
+    return;
+  }
+  for (const reply of replies) {
+    try {
+      await ctx.run(postNote, { ...reply, threadTs });
+    } catch (err) {
+      console.error(
+        `[amplifier] A thread reply for ${group.draftIds.join(", ")} failed. The thread is ` +
+          `missing a link and the drafts stay announced.`,
+        err,
+      );
+    }
+  }
+}
+
+/** Log the parent and every reply, in the order a real run would post them. */
+function logDryRun(parent: PostMessageInput, replies: PostMessageInput[]): void {
+  console.log(`[dry run] would post:\n${messageText(parent)}`);
+  for (const reply of replies) {
+    console.log(`[dry run] would reply:\n${messageText(reply)}`);
+  }
+}
+
+/**
+ * A message's body as text, for the dry-run log.
+ *
+ * The parent carries `blocks` and no `markdown`, so the section blocks are read
+ * back out. Anything else falls back to the notification text.
+ */
+function messageText(message: PostMessageInput): string {
+  if (message.markdown) return message.markdown;
+  const sections = (message.blocks ?? []).flatMap((block) => {
+    const text = (block as { text?: { text?: unknown } }).text?.text;
+    return typeof text === "string" ? [text] : [];
+  });
+  return sections.length > 0 ? sections.join("\n\n") : message.text;
 }

@@ -17,7 +17,8 @@ function runCtx(overrides: TaskHandlers = {}) {
     "kv.unlock": () => ({ released: true }),
     "kv.get": () => ({ value: null }),
     "kv.set": () => ({ ok: true }),
-    "amplifier.postNote": () => ({ delivered: true }),
+    // A ts, because announceGroups needs one to thread the replies under.
+    "amplifier.postNote": () => ({ delivered: true, ts: "17580000.001" }),
     "llm.complete": () => ({
       text: "Something shipped. Please amplify!",
       model: "m",
@@ -48,16 +49,17 @@ describe("checkPostsImpl", () => {
 
     const result = await check(ctx, BASE);
 
+    // One note, posted as a parent plus one reply per platform.
     const posts = calls.filter((c) => c.name === "amplifier.postNote");
-    expect(posts).toHaveLength(1);
-    expect(posts[0]?.input.channel).toBe("social");
-    expect(posts[0]?.input.markdown).toContain("|X post>");
-    expect(posts[0]?.input.markdown).toContain("|LinkedIn post>");
+    expect(posts).toHaveLength(3);
+    expect(posts.map((p) => p.input.channel)).toEqual(["social", "social", "social"]);
+    expect(posts[1]?.input.markdown).toContain("|LinkedIn post>");
+    expect(posts[2]?.input.markdown).toContain("|X post>");
     expect(result.notified).toBe(1);
   });
 
   it("posts one note when an X post and a LinkedIn post land together", async () => {
-    const { ctx, calls } = runCtx({
+    const { ctx } = runCtx({
       "typefully.listPublished": () => ({
         posts: [
           post("1", "2026-09-04T15:30:00Z", ["x"]),
@@ -68,7 +70,7 @@ describe("checkPostsImpl", () => {
 
     const result = await check(ctx, { ...BASE, groupWindowMinutes: 10 });
 
-    expect(calls.filter((c) => c.name === "amplifier.postNote")).toHaveLength(1);
+    expect(result.notes).toHaveLength(1);
     expect(result.notes[0]?.draftIds).toEqual(["1", "2"]);
   });
 
@@ -552,8 +554,8 @@ describe("checkPostsImpl across two runs with one Key Value", () => {
 
     const result = await check(ctx, BASE);
 
-    const md = calls.find((c) => c.name === "amplifier.postNote")?.input.markdown ?? "";
-    expect(md.startsWith("Something shipped. Please amplify!")).toBe(true);
+    const parent = calls.find((c) => c.name === "amplifier.postNote")?.input;
+    expect(parent.blocks[0].text.text).toBe("Something shipped. Please amplify! 🧵");
     expect(result.notes[0]?.summarized).toBe(true);
   });
 

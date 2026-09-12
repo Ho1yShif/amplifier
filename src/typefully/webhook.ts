@@ -1,5 +1,6 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
 import type { WebhookAdapter, WebhookContext, WebhookRequest } from "@render-lab/triggers";
+import { isFresh, timingSafeEquals } from "../http/signature.js";
 
 /** The one event that can produce a note. See docs/typefully-webhook.md. */
 const PUBLISHED_EVENT = "draft.published";
@@ -18,39 +19,6 @@ const SIGNATURE_HEADER = "x-typefully-signature";
  * post that never gets announced.
  */
 const TOLERANCE_MS = 15 * 60_000;
-
-/** Constant-time compare of two strings of any length. */
-function timingSafeEquals(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
-}
-
-/**
- * Whether a signed delivery is recent enough to act on.
- *
- * Rejects on both sides of the window, so a clock far ahead fails the same way
- * one far behind does. Logs the header as received, because no delivery has
- * reached a real receiver yet and a unit mismatch would otherwise look like a
- * silent drop.
- */
-function isFresh(timestamp: string, nowMs: number): boolean {
-  if (!/^\d+$/.test(timestamp)) {
-    console.error(`[amplifier] Rejected a delivery: timestamp ${timestamp} is not Unix seconds.`);
-    return false;
-  }
-  const skewMs = Math.abs(nowMs - Number(timestamp) * 1_000);
-  if (skewMs > TOLERANCE_MS) {
-    console.error(
-      `[amplifier] Rejected a delivery: timestamp ${timestamp} is ` +
-        `${Math.round(skewMs / 60_000)} minutes from this clock, past the ` +
-        `${TOLERANCE_MS / 60_000}-minute window.`,
-    );
-    return false;
-  }
-  return true;
-}
 
 /** The `event` field of a `{ event, data }` envelope, or undefined. */
 function eventType(body: unknown): string | undefined {
@@ -110,7 +78,7 @@ export function typefullyWebhook(
 
       const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
       if (!timingSafeEquals(`sha256=${digest}`, signature)) return false;
-      return isFresh(timestamp, now().getTime());
+      return isFresh("Typefully", timestamp, now().getTime(), TOLERANCE_MS);
     },
 
     /**

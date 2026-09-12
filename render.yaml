@@ -7,8 +7,10 @@
 # Order: create the Slack app, create the Workflow service, create the two env
 # groups by hand with their values, apply this Blueprint, link amplifier-workflow
 # to the Workflow service, add the amplifier-kv internal connection string to that
-# group as REDIS_URL, then register the receiver's public URL in Typefully under
-# Settings > API and copy the signing secret back into TYPEFULLY_WEBHOOK_SECRET.
+# group as REDIS_URL, register the receiver's public URL in Typefully under
+# Settings > API and copy the signing secret back into TYPEFULLY_WEBHOOK_SECRET,
+# then point the Slack app at the receiver: its Interactivity Request URL at
+# /slack/interactivity and its OAuth Redirect URL at /slack/oauth/callback.
 projects:
   - name: amplifier
     environments:
@@ -30,6 +32,9 @@ projects:
             name: amplifier-kv
             plan: starter
             region: oregon
+            # noeviction, because the announced markers and the stored Slack
+            # user tokens both have to survive memory pressure. An evicted
+            # marker re-posts a note; an evicted token costs one re-authorize.
             maxmemoryPolicy: noeviction
             # Reachable only over the private network, so the Workflow service
             # must be in this same workspace and region. Its project and
@@ -57,3 +62,5 @@ projects:
             envVars:
               - key: AMPLIFIER_SUMMARY_MODEL
                 value: anthropic/claude-sonnet-5
+              - key: AMPLIFIER_REPOST_EMOJI
+                value: white_check_mark

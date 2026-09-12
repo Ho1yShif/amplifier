@@ -20,12 +20,14 @@
     "check": "pnpm format:check && pnpm typecheck && pnpm test"
   },
   "dependencies": {
+    "@hono/node-server": "2.1.1",
     "@render-lab/tasks-core": "0.3.0",
     "@render-lab/tasks-llm": "0.8.1",
     "@render-lab/tasks-render-kv": "0.3.0",
     "@render-lab/tasks-slack": "0.3.0",
     "@render-lab/triggers": "0.2.0",
-    "@renderinc/sdk": "1.0.0"
+    "@renderinc/sdk": "1.0.0",
+    "hono": "4.13.5"
   },
   "devDependencies": {
     "@render-lab/test-utils": "0.1.0",

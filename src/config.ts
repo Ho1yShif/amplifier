@@ -14,6 +14,8 @@ export interface CheckPostsInput {
   callToAction?: string;
   /** Provider-prefixed model id for the summary, e.g. "anthropic/claude-sonnet-5". */
   summaryModel?: string;
+  /** Channel the Repost button posts to. Absent means the note carries no button. */
+  repostChannel?: string;
   dryRun?: boolean;
   /** ISO 8601 "now", for tests and for replaying a past window. */
   now?: string;
@@ -34,7 +36,22 @@ export interface AmplifierConfig {
   callToAction: string;
   summaryModel: string;
   dryRun: boolean;
+  /** Channel the Repost button posts to. Absent means no button and no repost. */
+  repostChannel?: string;
+  /** Reaction the repost task adds to the source parent. */
+  repostEmoji: string;
+  /** Slack app credentials for the user-token exchange. Absent means nobody can authorize. */
+  slackClientId?: string;
+  slackClientSecret?: string;
 }
+
+/**
+ * Reaction added to a note that has been reposted.
+ *
+ * `white_check_mark` and not `check`, because `check` is a custom emoji in most
+ * workspaces and `reactions.add` answers `invalid_name` when it is missing.
+ */
+export const DEFAULT_REPOST_EMOJI = "white_check_mark";
 
 /**
  * Most drafts one run may pull, and so the widest burst of concurrent Key Value
@@ -72,6 +89,9 @@ export function loadConfig(
 ): AmplifierConfig {
   const socialSetId = input.socialSetId ?? env.TYPEFULLY_SOCIAL_SET_ID;
   const slackChannel = channelName(input.slackChannel ?? env.SLACK_CHANNEL);
+  const repostChannel = channelName(input.repostChannel ?? env.AMPLIFIER_REPOST_CHANNEL);
+  const slackClientId = optional(env.SLACK_CLIENT_ID);
+  const slackClientSecret = optional(env.SLACK_CLIENT_SECRET);
   const seenTtlDays = whole(
     "AMPLIFIER_SEEN_TTL_DAYS",
     input.seenTtlDays,
@@ -118,6 +138,10 @@ export function loadConfig(
     callToAction: text(input.callToAction, env.AMPLIFIER_CALL_TO_ACTION, DEFAULT_CALL_TO_ACTION),
     summaryModel: text(input.summaryModel, env.AMPLIFIER_SUMMARY_MODEL, DEFAULT_SUMMARY_MODEL),
     dryRun: input.dryRun ?? env.DRY_RUN === "true",
+    ...(repostChannel ? { repostChannel } : {}),
+    repostEmoji: text(undefined, env.AMPLIFIER_REPOST_EMOJI, DEFAULT_REPOST_EMOJI),
+    ...(slackClientId ? { slackClientId } : {}),
+    ...(slackClientSecret ? { slackClientSecret } : {}),
   };
 }
 
@@ -127,6 +151,15 @@ export function loadConfig(
  */
 function channelName(value: string | undefined): string | undefined {
   return value?.trim().replace(/^#/, "") || undefined;
+}
+
+/**
+ * Resolve one setting that has no default. A blank environment variable reads
+ * as unset, matching `text`: a declared-but-empty variable is the normal state
+ * of a Render env var nobody filled in.
+ */
+function optional(envValue: string | undefined): string | undefined {
+  return envValue?.trim() || undefined;
 }
 
 /**

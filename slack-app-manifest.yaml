@@ -1,6 +1,9 @@
 # Slack app definition for amplifier. See the README for how to apply it.
-# Both scopes are requested so either credential works: chat:write for
-# SLACK_BOT_TOKEN, incoming-webhook for SLACK_WEBHOOK_URL.
+#
+# The two URLs below point at the amplifier-webhook receiver, whose hostname does
+# not exist until the Blueprint is applied. Replace amplifier-webhook.onrender.com
+# with the receiver's real host, or set both URLs in the Slack dashboard after
+# deployment.
 display_information:
   name: Amplifier
   description: Posts a Slack note when a Render post goes live on X or LinkedIn.
@@ -10,11 +13,21 @@ features:
     display_name: amplifier
     always_online: false
 oauth_config:
+  # chat:write posts the note and the Reposted-by reply; reactions:write marks a
+  # note that has been reposted. The user scope is what lets a stakeholder's
+  # Repost click post as them rather than as the bot.
   scopes:
     bot:
       - chat:write
-      - incoming-webhook
+      - reactions:write
+    user:
+      - chat:write
+  redirect_urls:
+    - https://amplifier-webhook.onrender.com/slack/oauth/callback
 settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://amplifier-webhook.onrender.com/slack/interactivity
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false

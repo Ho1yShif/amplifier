@@ -1,15 +1,15 @@
 /**
- * A stand-in for Typefully and a Slack incoming webhook, so the whole
- * announce-once path can run locally with no credentials.
+ * A stand-in for Typefully and the Slack Web API, so the whole announce-once
+ * path can run locally with no credentials.
  *
  *   pnpm stub
  *
  * It serves two routes:
  *
  *   GET  /v2/social-sets/:id/drafts   the canned drafts below, honouring `limit`
- *   POST /slack                       logs the note and returns 200
+ *   POST /slack/chat.postMessage      logs the message and returns a ts
  *
- * Point the app at it with TYPEFULLY_BASE_URL and SLACK_WEBHOOK_URL. See
+ * Point the app at it with TYPEFULLY_BASE_URL and SLACK_API_BASE_URL. See
  * scripts/local-run.ts for the full command.
  *
  * The drafts are newest-first, which is what the real API is assumed to do.
@@ -59,6 +59,13 @@ const DRAFTS: TypefullyDraft[] = [
   },
 ];
 
+/** A distinct, increasing message timestamp, the way Slack hands them out. */
+let posted = 0;
+function nextTs(): string {
+  posted += 1;
+  return `1758000000.${String(posted).padStart(6, "0")}`;
+}
+
 const server = createServer((req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
 
@@ -71,14 +78,20 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (req.method === "POST" && url.pathname === "/slack") {
+  if (req.method === "POST" && url.pathname.startsWith("/slack/")) {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
-      const text = (JSON.parse(body || "{}") as { text?: string }).text;
-      console.log(`[stub] slack <- ${text}`);
-      res.writeHead(200, { "content-type": "text/plain" });
-      res.end("ok");
+      const sent = JSON.parse(body || "{}") as {
+        text?: string;
+        thread_ts?: string;
+        blocks?: { text?: { text?: string } }[];
+      };
+      const shown = sent.blocks?.[0]?.text?.text ?? sent.text;
+      console.log(`[stub] slack <- ${sent.thread_ts ? "reply " : ""}${shown}`);
+      // A ts, because announceGroups threads the replies under the parent's.
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, channel: "C_LOCAL", ts: nextTs() }));
     });
     return;
   }
@@ -88,5 +101,5 @@ const server = createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[stub] Typefully and Slack on http://localhost:${PORT}`);
+  console.log(`[stub] Typefully and the Slack Web API on http://localhost:${PORT}`);
 });
