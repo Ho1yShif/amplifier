@@ -45,9 +45,28 @@ export interface RepostDeps {
   now?: () => Date;
 }
 
-/** Whether a thrown Slack error carries a given `error` code. */
+/**
+ * The `error` code inside a thrown Slack failure.
+ *
+ * `@render-lab/tasks-slack` 0.3.0 throws a plain `Error` and exposes no
+ * structured code, so the code has to come out of the message, which it builds
+ * as `Slack API ${method} error: ${code}`. Unanchored, because a task that
+ * fails under `ctx.run` reaches this as `Subtask failed: ${details}` with the
+ * vendor's message inside. The code class is `[a-z_]+`, so a wrapper's trailing
+ * quote or punctuation does not become part of it.
+ */
+const SLACK_ERROR_CODE = /Slack API \S+ error: ([a-z_]+)/;
+
+/**
+ * Whether a thrown Slack error carries a given `error` code.
+ *
+ * Compares the parsed code exactly. A substring test over the whole message
+ * would take the branch on any message that merely contains the code, including
+ * a note's own text quoted back in a failure.
+ */
 function isSlackError(err: unknown, code: string): boolean {
-  return err instanceof Error && err.message.includes(code);
+  if (!(err instanceof Error)) return false;
+  return SLACK_ERROR_CODE.exec(err.message)?.[1] === code;
 }
 
 /**

@@ -227,6 +227,37 @@ describe("repostImpl, the refusals", () => {
     expect(calls.some((c) => c.name === "slack.addReaction")).toBe(false);
   });
 
+  it("reads the code through the subtask wrapper the workflow runtime adds", async () => {
+    const { texts, fetchImpl } = collectReplies();
+    const { ctx } = taskCtx(
+      handlers({
+        "amplifier.postNote": () => {
+          throw new Error("Subtask failed: Slack API chat.postMessage error: not_in_channel");
+        },
+      }),
+    );
+    const result = await repostImpl(ctx, input, env, { fetchImpl, now: () => NOW });
+
+    expect(result).toEqual({ reposted: false, reason: "not-in-channel" });
+    expect(texts[0]).toContain("Join #amplify-wider");
+  });
+
+  it("rethrows a failure whose text merely mentions a code it handles", async () => {
+    const { fetchImpl } = collectReplies();
+    const { ctx } = taskCtx(
+      handlers({
+        "amplifier.postNote": () => {
+          throw new Error(
+            'Slack API chat.postMessage error: invalid_blocks, on block {"text":"not_in_channel"}',
+          );
+        },
+      }),
+    );
+    await expect(repostImpl(ctx, input, env, { fetchImpl, now: () => NOW })).rejects.toThrow(
+      /invalid_blocks/,
+    );
+  });
+
   it("rethrows any other Slack failure, so REPOST_RETRY fires", async () => {
     const { fetchImpl } = collectReplies();
     const { ctx } = taskCtx(
