@@ -2,7 +2,7 @@ import type { TaskContext } from "@renderinc/sdk/workflows";
 import type { PostMessageInput } from "@render-lab/tasks-slack";
 import type { AmplifierConfig } from "../config.js";
 import { postNote } from "../slack/postNote.js";
-import { isSummary, summarizeGroup } from "../summary/summarize.js";
+import { isSummary, summarizeGroup, type SummaryOutcome } from "../summary/summarize.js";
 import type { Platform } from "../typefully/types.js";
 import type { PostGroup } from "./group.js";
 import { claimGroup, isClaimed, markAnnounced, releaseGroup } from "./seen.js";
@@ -82,22 +82,7 @@ export async function announceGroups(
         ? opts.droppedFor.platforms
         : [];
 
-    const noteOpts: RenderNoteOptions = {
-      ...(config.slackChannel ? { channel: config.slackChannel } : {}),
-      callToAction: config.callToAction,
-      ...(isSummary(summary) ? { summary: summary.line } : { summaryError: summary.error }),
-      ...(dropped.length > 0 ? { droppedPlatforms: dropped } : {}),
-    };
-    const platforms = notePlatforms(group);
-    const replies = platforms.length > 1 ? renderChildren(group, noteOpts) : [];
-    const key = noteKey(group.draftIds);
-    const parent =
-      replies.length > 0
-        ? renderParent(group, {
-            ...noteOpts,
-            ...(config.repostChannel ? { repostChannel: config.repostChannel, noteKey: key } : {}),
-          })
-        : renderFlatNote(group, noteOpts);
+    const { parent, replies, platforms, key } = renderGroup(group, config, summary, dropped);
 
     let delivered = false;
     let threadTs: string | undefined;
@@ -143,6 +128,49 @@ export async function announceGroups(
   }
 
   return { notes, skipped };
+}
+
+/** The messages one announcement posts. */
+interface RenderedNote {
+  parent: PostMessageInput;
+  /** One reply per platform link. Empty when the note is a single message. */
+  replies: PostMessageInput[];
+  /** Platforms the note covers, in display order. */
+  platforms: Platform[];
+  /** Key Value key the thread is stored under, and the value the button carries. */
+  key: string;
+}
+
+/**
+ * Render one group into the messages it posts.
+ *
+ * A group covering more than one platform becomes a parent message plus one
+ * reply per link. A single-platform group stays one flat message, because one
+ * link is not a thread.
+ */
+function renderGroup(
+  group: PostGroup,
+  config: AmplifierConfig,
+  summary: SummaryOutcome,
+  dropped: Platform[],
+): RenderedNote {
+  const noteOpts: RenderNoteOptions = {
+    ...(config.slackChannel ? { channel: config.slackChannel } : {}),
+    callToAction: config.callToAction,
+    ...(isSummary(summary) ? { summary: summary.line } : { summaryError: summary.error }),
+    ...(dropped.length > 0 ? { droppedPlatforms: dropped } : {}),
+  };
+  const platforms = notePlatforms(group);
+  const replies = platforms.length > 1 ? renderChildren(group, noteOpts) : [];
+  const key = noteKey(group.draftIds);
+  const parent =
+    replies.length > 0
+      ? renderParent(group, {
+          ...noteOpts,
+          ...(config.repostChannel ? { repostChannel: config.repostChannel, noteKey: key } : {}),
+        })
+      : renderFlatNote(group, noteOpts);
+  return { parent, replies, platforms, key };
 }
 
 /**

@@ -2,10 +2,15 @@ import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import { get as kvGet } from "@render-lab/tasks-render-kv";
 import { addReaction } from "@render-lab/tasks-slack";
 import { loadConfig } from "../config.js";
-import { authorizeUrl, CALLBACK_PATH, publicBaseUrl, userTokenKey } from "../slack/oauth.js";
+import {
+  authorizeUrl,
+  CALLBACK_PATH,
+  publicBaseUrl,
+  signState,
+  userTokenKey,
+} from "../slack/oauth.js";
 import { postNote } from "../slack/postNote.js";
 import { respondEphemeral, type ResponseFetch } from "../slack/respond.js";
-import { signState } from "../slack/oauth.js";
 import { readNote } from "./storedNote.js";
 import { withoutRepostButton } from "./template.js";
 import { REPOST_RETRY } from "./retry.js";
