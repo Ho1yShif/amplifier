@@ -315,8 +315,10 @@ host.
    `chat:write` and `reactions:write`. **User Token Scopes** needs `chat:write`, because a
    repost posts as the person who clicked. Click **Add an OAuth Scope** for any that is
    missing. An app installed before `reactions:write` was added will not have it.
-4. If either scope list changed, click **Reinstall to <WORKSPACE-NAME>** at the top of the page.
-   A reinstall mints a new bot token, so copy the new `xoxb-` value into `SLACK_BOT_TOKEN` in the `amplifier-workflow` Environment Group.
+4. If either scope list changed, click **Reinstall to <WORKSPACE-NAME>** at the top of the
+   page. A reinstall mints a new bot token, so copy the new `xoxb-` value into
+   `SLACK_BOT_TOKEN` in the `amplifier-workflow` Environment Group and redeploy
+   `amplifier-workflow`. The old token keeps working with the old scopes until you do.
 5. Set the environment variables the button needs. In the Render Dashboard the two env
    groups are under **Env Groups**. `amplifier-triggers` gets `SLACK_CLIENT_ID` and
    `SLACK_SIGNING_SECRET`. `amplifier-workflow` gets those two plus `SLACK_CLIENT_SECRET`,
@@ -348,8 +350,9 @@ first click. Three failures to tell apart:
   does not match `AMPLIFIER_PUBLIC_URL` exactly.
 - The repost lands and the "Reposted by" reply appears, but the source note gets no check
   mark. The bot token has no `reactions:write`, and `amplifier.repost` logs
-  `reactions.add error: missing_scope` rather than failing the click. Add the scope in
-  step 3, reinstall, and update `SLACK_BOT_TOKEN`.
+  `reactions.add error: missing_scope` rather than failing the click. Add the scope in step
+  3 and follow step 4. The reaction goes through `SLACK_RETRY`, so it spends about eighteen
+  seconds retrying a failure that will never clear, which is why the confirmation is slow.
 
 To test against a local receiver, put a tunnel in front of it and use the tunnel's
 hostname in steps 1, 2 and 5. Slack has to reach the receiver from the internet.
