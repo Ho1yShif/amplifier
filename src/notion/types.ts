@@ -3,8 +3,8 @@
 /**
  * A Notion user as a people property reports it.
  *
- * `person.email` is present only when the integration has the "User
- * information with email addresses" capability. Without it Notion omits the
+ * `person.email` is present only when the integration has the "Read user
+ * information, including email addresses" capability. Without it Notion omits the
  * field and returns no error, so a missing email reads the same as a person
  * who has none.
  */

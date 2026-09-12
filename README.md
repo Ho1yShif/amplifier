@@ -156,7 +156,7 @@ region Oregon, built from `main`.
 11. Register the receiver in Typefully, following [Registering the Typefully webhook](#registering-the-typefully-webhook) below.
 12. Add `DRY_RUN=true` to `amplifier-workflow`, publish a couple of posts, and read the Workflow logs. The parent is logged after `[dry run] would post:` and each threaded link after `[dry run] would reply:`, in the order a real run would send them. Check the thread shape here before the first real note.
 13. Remove `DRY_RUN` from `amplifier-workflow` so runs post to Slack.
-14. Register the Notion subscription, following [Registering the Notion webhook](#registering-the-notion-webhook) below. Skip this step if you only want the announce path.
+14. Create the Notion integration and register the subscription, following [Notion integration and webhook](#notion-integration-and-webhook) below. Skip this step if you only want the announce path.
 
 ### Creating the Workflow service
 
@@ -213,23 +213,32 @@ so `render workflows create` needs no `--env-var` or `--env-file` flags.
 4. Typefully now shows a signing secret. Add a new key to the `amplifier-triggers` env group, named `TYPEFULLY_WEBHOOK_SECRET`, and paste the secret as its value. The key does not exist yet, because Typefully creates the secret only when you save the webhook, so deployment step 4 could not add it.
 5. Redeploy `amplifier-webhook`. It reads `TYPEFULLY_WEBHOOK_SECRET` at startup, so it rejects every delivery until it restarts with the new value.
 
-### Registering the Notion webhook
+### Notion integration and webhook
 
-Do this after the receiver is deployed, and in this order. The handshake in step 5 only works while
+Do this after the receiver is deployed, and in this order. The handshake in step 7 only works while
 `NOTION_WEBHOOK_SECRET` is unset, which is exactly when you need it.
 
-1. Create an internal integration at <https://notion.so/profile/integrations>. Under its
-   Capabilities, set user capabilities to **User information with email addresses**. Without that
-   setting the owner property carries no email, and nobody can be DMed.
-2. Connect the integration to the launch database, from the database's **···** menu > **Connections**.
-3. Add `NOTION_TOKEN` to the `amplifier-workflow` env group, and redeploy the Workflow service.
-4. On the integration's **Webhooks** tab, create a subscription pointing at the receiver's
+1. Open <https://notion.so/profile/integrations> and click **New integration**. Name it, pick the
+   workspace that holds the launch database, and set its type to **Internal**.
+2. On the integration's **Configuration** tab, under **Capabilities**, check **Read content** and
+   set user capabilities to **Read user information, including email addresses**. Without the email
+   capability the owner property carries no email, and nobody can be DMed. Save.
+3. Still on **Configuration**, under **Internal Integration Secret**, click **Show** and then
+   **Copy**. The value starts with `ntn_`. This is `NOTION_TOKEN`. Notion shows it to anyone who can
+   open the integration, so treat it as a password and do not paste it into a file you commit.
+4. Connect the integration to the launch database, from the database's **···** menu >
+   **Connections** > the integration's name. A page the integration is not connected to answers 404,
+   and `amplifier.pingOwners` fails.
+5. Add the secret to the `amplifier-workflow` env group as `NOTION_TOKEN`, and redeploy the Workflow
+   service. It reads the token on each call, but the redeploy is what puts the new variable on the
+   running service.
+6. On the integration's **Webhooks** tab, create a subscription pointing at the receiver's
    `onrender.com` URL with `/webhooks/notion` appended, and subscribe to
    `page.properties_updated`.
-5. Notion posts a one-time unsigned handshake to that URL and waits. Open the `amplifier-webhook`
+7. Notion posts a one-time unsigned handshake to that URL and waits. Open the `amplifier-webhook`
    logs, copy the token from the `Notion subscription handshake` line, and paste it into the Notion
    UI to verify the subscription.
-6. Add that same token to the `amplifier-triggers` env group as `NOTION_WEBHOOK_SECRET`, and
+8. Add that same token to the `amplifier-triggers` env group as `NOTION_WEBHOOK_SECRET`, and
    redeploy `amplifier-webhook`. Until then it rejects every delivery.
 
 ### Manual trigger
@@ -503,8 +512,8 @@ renamed to `Typefully URL`. The owner property is normally a people property. An
 a text property holding addresses, is read as well.
 
 The owner's email comes from the people property, which carries one only when the Notion
-integration has the "User information with email addresses" capability. Without it Notion omits the
-field and returns no error, so every owner reads as having no email and every launch ends in the
+integration has the "Read user information, including email addresses" capability. Without it
+Notion omits the field and returns no error, so every owner reads as having no email and every launch ends in the
 channel note.
 
 `NOTION_DATABASE_ID` is the launch database. The Notion subscription covers every page the
