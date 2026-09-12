@@ -12,6 +12,7 @@ const LI_POST = post("2", "2026-09-04T15:35:00Z", ["linkedin"]);
 function ctxFor(overrides: TaskHandlers = {}) {
   return runCtx({
     "typefully.listPublished": () => ({ posts: [X_POST, LI_POST] }),
+    "amplifier.pingOwners": ({ draftId }) => ({ draftId, dryRun: false, skipped: "no-url" }),
     ...overrides,
   });
 }
@@ -136,6 +137,29 @@ describe("announcePostImpl", () => {
     } finally {
       log.mockRestore();
     }
+  });
+
+  it("DMs the launch's Notion owners when asked", async () => {
+    const { ctx, calls } = ctxFor();
+
+    const result = await announcePostImpl(
+      ctx,
+      { draftId: "1", pingOwners: true },
+      { TYPEFULLY_SOCIAL_SET_ID: "set_1", NOTION_DATABASE_ID: "db_1" },
+    );
+
+    expect(result.note?.delivered).toBe(true);
+    // No launch page carries the link, so the ping finds nothing to DM.
+    expect(calls.filter((c) => c.name === "amplifier.pingOwners")).toHaveLength(1);
+    expect(calls.find((c) => c.name === "amplifier.pingOwners")?.input).toEqual({ draftId: "1" });
+  });
+
+  it("leaves the owners alone by default", async () => {
+    const { ctx, calls } = ctxFor();
+
+    await announce(ctx, { draftId: "1" });
+
+    expect(calls.filter((c) => c.name === "amplifier.pingOwners")).toEqual([]);
   });
 
   it("reports a refused claim instead of throwing", async () => {

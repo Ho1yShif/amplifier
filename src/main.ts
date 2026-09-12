@@ -3,10 +3,11 @@
 // Importing the task modules registers amplifier.checkPosts,
 // amplifier.handleEvent, amplifier.announcePost, amplifier.repost,
 // amplifier.saveUserToken and amplifier.pingOwners and, transitively, every
-// task they compose — typefully.listPublished, notion.getPage, llm.complete,
-// amplifier.postNote, amplifier.lookupUser, amplifier.openDm,
-// slack.addReaction, kv.lock, kv.unlock, kv.get, kv.set, kv.delete — because
-// each module calls task(...) at load.
+// task they compose — typefully.listPublished, notion.getPage,
+// notion.findLaunches, llm.complete, amplifier.postNote,
+// amplifier.lookupUser, amplifier.openDm, slack.addReaction, kv.lock,
+// kv.unlock, kv.get, kv.set, kv.delete — because each module calls task(...)
+// at load.
 // They all register into the one shared @renderinc/sdk TaskRegistry.
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import "./amplifier/announcePost.js";

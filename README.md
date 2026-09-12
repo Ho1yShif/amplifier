@@ -256,12 +256,14 @@ render workflows start <slug>/amplifier.announcePost \
 
 The Dashboard route is the same task from the Workflow service's **Tasks** tab, pasting the same JSON array. The array is the task's positional arguments, so a single object in an array is the shape.
 
-| Field     | What it does                                            |
-| --------- | ------------------------------------------------------- |
-| `url`     | Permalink to the live post, or its Typefully share URL. |
-| `draftId` | Typefully draft id, when the URL is not to hand.        |
-| `force`   | Re-post a draft that was already announced.             |
-| `dryRun`  | Log the note instead of posting it.                     |
+| Field          | What it does                                            |
+| -------------- | ------------------------------------------------------- |
+| `url`          | Permalink to the live post, or its Typefully share URL. |
+| `draftId`      | Typefully draft id, when the URL is not to hand.        |
+| `force`        | Re-post a draft that was already announced.             |
+| `dryRun`       | Log the note instead of posting it.                     |
+| `pingOwners`   | Also DM the launch's Notion owners. Off by default.     |
+| `slackChannel` | Channel the note goes to.                               |
 
 `dryRun: true` prints the note after `[dry run] would post:` in the run's logs and writes no marker, so the real run still has the post to announce.
 
@@ -287,15 +289,29 @@ render workflows start <slug>/amplifier.pingOwners \
   --input='[{"pageId":"2a1b3c4d5e6f4a8b9c0d1e2f3a4b5c6d"}]'
 ```
 
-| Field          | What it does                                          |
-| -------------- | ----------------------------------------------------- |
-| `pageId`       | The Notion page to read. Required.                    |
-| `force`        | DM the owners again for a page already marked pinged. |
-| `dryRun`       | Log each DM instead of sending it.                    |
-| `slackChannel` | Channel the unreachable-owner note goes to.           |
+It also takes the live post's permalink, which is the link you have in front of you when somebody
+asks why a post got no amplification:
+
+```bash
+render workflows start <slug>/amplifier.pingOwners \
+  --input='[{"url":"https://x.com/render/status/2097716776390058019"}]'
+```
+
+| Field          | What it does                                                  |
+| -------------- | ------------------------------------------------------------- |
+| `pageId`       | The Notion page to read. One of `pageId`, `url` or `draftId`. |
+| `url`          | Permalink to the live post, or its Typefully share URL.       |
+| `draftId`      | Typefully draft id, when the URL is not to hand.              |
+| `force`        | DM the owners again for a page already marked pinged.         |
+| `dryRun`       | Log each DM instead of sending it.                            |
+| `slackChannel` | Channel the unreachable-owner note goes to.                   |
 
 `dryRun: true` still reads the page and resolves each owner, so the logs say who would be DMed and
 who could not be found. It sends nothing and writes no marker.
+
+A `url` or a `draftId` reaches the page in two hops, described in
+[From a post URL to its owners](#from-a-post-url-to-its-owners). It needs `NOTION_DATABASE_ID`,
+because there is no other way to know which database to search.
 
 ### Security
 
@@ -513,8 +529,8 @@ a text property holding addresses, is read as well.
 
 The owner's email comes from the people property, which carries one only when the Notion
 integration has the "Read user information, including email addresses" capability. Without it
-Notion omits the field and returns no error, so every owner reads as having no email and every launch ends in the
-channel note.
+Notion omits the field and returns no error, so every owner reads as having no email and every
+launch ends in the channel note.
 
 `NOTION_DATABASE_ID` is the launch database. The Notion subscription covers every page the
 integration is connected to, so set it to skip pages from anywhere else. For the Render team it is
@@ -522,6 +538,31 @@ the content database the DX team owns, whose Social Calendar view is the one peo
 
 Delivery is at least once here too. The pinged marker is written after Slack accepts a DM, so a run
 that dies in the gap loses its lock within 5 minutes and the next delivery DMs the owners again.
+
+### From a post URL to its owners
+
+`amplifier.pingOwners` also accepts a live post's permalink, so a post that is already on X or
+LinkedIn can reach the same owners. A permalink is not on the launch page, so the run gets there in
+two hops:
+
+1. `typefully.listPublished` turns the permalink into its draft, which carries the Typefully share
+   URL. The newest 50 published drafts are searched, so an older post needs its `draftId`.
+2. `notion.findLaunches` queries the launch database for a page whose Typefully property contains
+   that share URL, its last path segment, or the draft id. The share URL wins when more than one
+   page matches, and the run logs which page it chose.
+
+The query goes to the database's first data source, because Notion 2025-09-03 splits a database
+into data sources and only a data source can be queried. The filter names the Typefully property by
+its exact display name, which comes from the data source's schema rather than from
+`NOTION_TYPEFULLY_PROPERTY` directly, so the loose name match works here as well.
+
+Nothing is DMed when no page carries the link. That is the normal state of a post somebody
+published straight from Typefully without a launch page, so the run throws and names the share URL
+it looked for.
+
+`amplifier.announcePost` can do both at once with `pingOwners: true`: it posts the channel note
+first, then DMs the owners. The note is posted first so a Notion database nobody has configured
+cannot cost the channel its announcement.
 
 ## Configuration
 
@@ -546,7 +587,7 @@ that dies in the gap loses its lock within 5 minutes and the next delivery DMs t
 | `NOTION_TOKEN`                   | —                           | —     | Required for the owner DMs. An internal integration secret, with the user-email capability.                                                                                                                                                          |
 | `NOTION_TYPEFULLY_PROPERTY`      | `Typefully`                 | —     | Name of the launch page's URL property. Matched case-insensitively, and a longer name containing this one matches too.                                                                                                                               |
 | `NOTION_OWNERS_PROPERTY`         | `Owner`                     | —     | Name of the launch page's people property. An email or text property is read too.                                                                                                                                                                    |
-| `NOTION_DATABASE_ID`             | —                           | —     | The launch database. Unset means a page from any database the integration can see can ping.                                                                                                                                                          |
+| `NOTION_DATABASE_ID`             | —                           | —     | The launch database. Unset means a page from any database the integration can see can ping, and no page can be found by post URL.                                                                                                                    |
 | `NOTION_BASE_URL`                | Notion                      | —     | Local stub only. The token is sent to whatever host this names, so only a loopback address is accepted. Leave it unset in production.                                                                                                                |
 | `AMPLIFIER_PING_ASK`             | see below                   | —     | The ask at the end of an owner's DM.                                                                                                                                                                                                                 |
 | `AMPLIFIER_REPOST_CHANNEL`       | —                           | —     | Channel the Repost button posts to. Unset means no button and no stored note. See [Reposting](#reposting).                                                                                                                                           |

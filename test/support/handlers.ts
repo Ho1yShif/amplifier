@@ -18,6 +18,7 @@ export function runCtx(overrides: TaskHandlers = {}) {
     // A page with an id and no properties, which reads as a launch page whose
     // Typefully URL is still empty. Tests that want a launch pass their own.
     "notion.getPage": ({ pageId }) => ({ page: { id: pageId } }),
+    "notion.findLaunches": () => ({ pages: [], truncated: false }),
     "amplifier.lookupUser": () => ({ userId: "U_OWNER" }),
     "amplifier.openDm": () => ({ channelId: "D_OWNER" }),
     "kv.lock": () => ({ acquired: true }),

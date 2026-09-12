@@ -3,9 +3,10 @@ import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import { deleteKeys, get as kvGet } from "@render-lab/tasks-render-kv";
 import { loadConfig, MAX_LIMIT } from "../config.js";
 import { listPublished } from "../typefully/listPublished.js";
-import type { PublishedPost } from "../typefully/types.js";
+import { matchPost, noMatchMessage } from "../typefully/match.js";
 import { announceGroups, type NoteResult } from "./announce.js";
 import { groupPosts } from "./group.js";
+import { pingOwners, type PingOwnersResult } from "./pingOwners.js";
 import { seenKey } from "./seen.js";
 
 export interface AnnouncePostInput {
@@ -15,6 +16,11 @@ export interface AnnouncePostInput {
   draftId?: string;
   /** Announce a draft the seen marker already records. Re-posts the note. */
   force?: boolean;
+  /**
+   * Also DM the launch's Notion owners. Off by default, because the channel
+   * note already asks everybody to amplify. Needs NOTION_DATABASE_ID.
+   */
+  pingOwners?: boolean;
   dryRun?: boolean;
   slackChannel?: string;
 }
@@ -26,20 +32,8 @@ export interface AnnouncePostResult {
   note?: NoteResult;
   /** Set when nothing was posted, naming why. */
   skipped?: "announced" | "claimed";
-}
-
-/**
- * The draft matching the input, by draft id when given and otherwise by URL.
- *
- * The URL is matched against both the platform permalinks and Typefully's own
- * share URL, because the link on a Notion launch page is the share URL — the
- * post is scheduled there before any permalink exists.
- */
-function findPost(posts: PublishedPost[], input: AnnouncePostInput): PublishedPost | undefined {
-  if (input.draftId !== undefined) {
-    return posts.find((p) => p.draftId === input.draftId);
-  }
-  return posts.find((p) => p.links.some((l) => l.url === input.url) || p.shareUrl === input.url);
+  /** Present when pingOwners was set. What the owner DMs did. */
+  ping?: PingOwnersResult;
 }
 
 /** Raw implementation of amplifier.announcePost. */
@@ -66,14 +60,9 @@ export async function announcePostImpl(
     limit: MAX_LIMIT,
   });
 
-  const post = findPost(posts, input);
+  const post = matchPost(posts, input);
   if (!post) {
-    const target = input.draftId !== undefined ? `draft ${input.draftId}` : `${input.url}`;
-    throw new Error(
-      `No published draft matches ${target} among the newest ${posts.length} Typefully ` +
-        `returned. The post may be older than those, or its permalink may not be on X or ` +
-        `LinkedIn.`,
-    );
+    throw new Error(noMatchMessage(posts, input));
   }
 
   const key = seenKey(post.draftId);
@@ -100,7 +89,19 @@ export async function announcePostImpl(
     // Another run holds the claim and is posting the same note right now.
     return { draftId: post.draftId, dryRun: config.dryRun, skipped: "claimed" };
   }
-  return { draftId: post.draftId, dryRun: config.dryRun, note };
+
+  // After the note, so a Notion database nobody set up cannot cost the channel
+  // its announcement. pingOwners has its own once-only marker.
+  const ping = input.pingOwners
+    ? await ctx.run(pingOwners, {
+        draftId: post.draftId,
+        ...(input.force !== undefined ? { force: input.force } : {}),
+        ...(input.dryRun !== undefined ? { dryRun: input.dryRun } : {}),
+        ...(input.slackChannel !== undefined ? { slackChannel: input.slackChannel } : {}),
+      })
+    : undefined;
+
+  return { draftId: post.draftId, dryRun: config.dryRun, note, ...(ping ? { ping } : {}) };
 }
 
 /**

@@ -28,7 +28,7 @@ function plainText(value: NotionPropertyValue): string {
 }
 
 /**
- * The property a name refers to, matched loosely.
+ * The key under which a property lives, matched loosely.
  *
  * Notion keys `properties` by the property's display name, so the exact
  * spelling is configuration rather than a constant. An exact match is tried
@@ -36,26 +36,38 @@ function plainText(value: NotionPropertyValue): string {
  * whose name contains the configured one or is contained by it. The loose
  * match is what lets `Typefully` find a column somebody renamed to
  * `Typefully URL` without a redeploy.
+ *
+ * Returns the key rather than the value, because a data source's schema is
+ * keyed by name too and a query filter names the property by its exact name.
  */
-function findProperty(
-  properties: Record<string, NotionPropertyValue>,
+export function matchPropertyName<T extends { type?: string }>(
+  properties: Record<string, T>,
   name: string,
   types: string[],
-): NotionPropertyValue | undefined {
-  const exact = properties[name];
-  if (exact) return exact;
+): string | undefined {
+  if (properties[name]) return name;
 
   const wanted = name.trim().toLowerCase();
   const entries = Object.entries(properties);
   const sameName = entries.find(([key]) => key.trim().toLowerCase() === wanted);
-  if (sameName) return sameName[1];
+  if (sameName) return sameName[0];
 
   const sameType = entries.find(([key, value]) => {
     if (!value.type || !types.includes(value.type)) return false;
     const candidate = key.trim().toLowerCase();
     return candidate.includes(wanted) || wanted.includes(candidate);
   });
-  return sameType?.[1];
+  return sameType?.[0];
+}
+
+/** The property value a name refers to, matched by {@link matchPropertyName}. */
+function findProperty(
+  properties: Record<string, NotionPropertyValue>,
+  name: string,
+  types: string[],
+): NotionPropertyValue | undefined {
+  const key = matchPropertyName(properties, name, types);
+  return key === undefined ? undefined : properties[key];
 }
 
 /** The page's title, or "" when it has none. */
@@ -70,6 +82,16 @@ function typefullyUrl(value: NotionPropertyValue | undefined): string | undefine
   const url = value.url?.trim() || plainText(value);
   if (!url) return undefined;
   return /^https?:\/\//i.test(url) ? url : undefined;
+}
+
+/**
+ * The Typefully link on a page, or undefined when it carries none.
+ *
+ * Exported for the URL search, which ranks the pages a query returned without
+ * caring whether they have owners yet.
+ */
+export function readTypefullyUrl(page: NotionPage, property: string): string | undefined {
+  return typefullyUrl(findProperty(page.properties ?? {}, property, ["url", "rich_text"]));
 }
 
 /**

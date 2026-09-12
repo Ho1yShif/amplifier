@@ -4,6 +4,7 @@ import type { TaskContext } from "@renderinc/sdk/workflows";
 import { pingOwnersImpl, type PingOwnersInput } from "../src/amplifier/pingOwners.js";
 import { pingedKey, pingInflightKey } from "../src/amplifier/pinged.js";
 import type { NotionPage } from "../src/notion/types.js";
+import { post } from "./support/fixtures.js";
 import { runCtx } from "./support/handlers.js";
 import type { TaskCall, TaskHandlers } from "./support/taskCtx.js";
 
@@ -11,6 +12,7 @@ const PAGE: NotionPage = JSON.parse(
   readFileSync(new URL("./support/notion-page.json", import.meta.url), "utf8"),
 );
 const PAGE_ID = PAGE.id as string;
+const LAUNCH_DATABASE_ID = PAGE.parent?.database_id as string;
 
 /** Only what pingOwners reads, so a developer's shell cannot change a result. */
 const ENV = { SLACK_CHANNEL: "social", SLACK_BOT_TOKEN: "xoxb-test" };
@@ -251,9 +253,30 @@ describe("pingOwnersImpl", () => {
     }
   });
 
-  it("refuses a run with no page id", async () => {
+  it("refuses a run naming no page, URL or draft", async () => {
     const { ctx } = ctxFor();
-    await expect(ping(ctx, { pageId: " " })).rejects.toThrow(/pageId/);
+    await expect(ping(ctx, {})).rejects.toThrow(/pageId.*url.*draftId/s);
+  });
+
+  it("finds the page from a live post's permalink and DMs its owners", async () => {
+    const { ctx, calls } = ctxFor({
+      "typefully.listPublished": () => ({
+        posts: [post("10628613", "2026-09-04T15:30:00Z", ["x"])],
+      }),
+      "notion.findLaunches": () => ({ pages: [PAGE], truncated: false }),
+    });
+
+    const result = await ping(
+      ctx,
+      { url: "https://example.com/x/10628613" },
+      { ...ENV, NOTION_DATABASE_ID: LAUNCH_DATABASE_ID },
+    );
+
+    expect(result.pageId).toBe(PAGE_ID);
+    expect(result.pinged).toHaveLength(2);
+    expect(calls.find((c) => c.name === "notion.findLaunches")?.input.databaseId).toBe(
+      LAUNCH_DATABASE_ID,
+    );
   });
 
   it("skips a page from another database when one is configured", async () => {

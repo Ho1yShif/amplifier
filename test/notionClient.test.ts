@@ -4,6 +4,7 @@ import { fakeCtx } from "@render-lab/test-utils";
 import { NOTION_VERSION, notionPort } from "../src/notion/client.js";
 import { getPageImpl } from "../src/notion/getPage.js";
 import type { NotionPage } from "../src/notion/types.js";
+import { fakeNotion } from "./support/notionPort.js";
 
 const PAGE: NotionPage = JSON.parse(
   readFileSync(new URL("./support/notion-page.json", import.meta.url), "utf8"),
@@ -54,16 +55,17 @@ describe("notionPort", () => {
 
 describe("getPageImpl", () => {
   it("hands the page back as it came", async () => {
-    const deps = { notion: { getPage: vi.fn(async () => PAGE) } };
+    const getPage = vi.fn(async () => PAGE);
+    const deps = { notion: fakeNotion({ getPage }) };
 
     const { page } = await getPageImpl(fakeCtx(), { pageId: "page_1" }, deps);
 
-    expect(deps.notion.getPage).toHaveBeenCalledWith("page_1");
+    expect(getPage).toHaveBeenCalledWith("page_1");
     expect(page.id).toBe(PAGE.id);
   });
 
   it("refuses an empty page id", async () => {
-    const deps = { notion: { getPage: vi.fn(async () => PAGE) } };
+    const deps = { notion: fakeNotion({ getPage: vi.fn(async () => PAGE) }) };
     await expect(getPageImpl(fakeCtx(), { pageId: "" }, deps)).rejects.toThrow(/pageId/);
   });
 });

@@ -62,12 +62,63 @@ export interface NotionPage {
   properties?: Record<string, NotionPropertyValue>;
 }
 
+/** One property as the data source's schema reports it. */
+export interface NotionPropertySchema {
+  id?: string;
+  name?: string;
+  type?: string;
+}
+
+/** A data source under a database, as the database response lists it. */
+export interface NotionDataSourceRef {
+  id?: string;
+  name?: string;
+}
+
+/**
+ * Notion's database response. Since 2025-09-03 a database holds one or more
+ * data sources, and a query goes to a data source rather than the database.
+ */
+export interface NotionDatabase {
+  id?: string;
+  data_sources?: NotionDataSourceRef[];
+}
+
+/** A data source, read only for its property schema. */
+export interface NotionDataSource {
+  id?: string;
+  properties?: Record<string, NotionPropertySchema>;
+}
+
+/** One page of query results. */
+export interface QueryResult {
+  results?: NotionPage[];
+  has_more?: boolean;
+  next_cursor?: string | null;
+}
+
 export interface GetPageInput {
   pageId: string;
 }
 
 export interface GetPageResult {
   page: NotionPage;
+}
+
+export interface FindLaunchesInput {
+  /** The launch database. Its first data source is the one queried. */
+  databaseId: string;
+  /** Display name of the property holding the Typefully link. Matched loosely. */
+  typefullyProperty: string;
+  /** Strings to look for inside that property. A page matching any one is returned. */
+  needles: string[];
+}
+
+export interface FindLaunchesResult {
+  /** Every page whose Typefully property contains one of the needles. */
+  pages: NotionPage[];
+  /** True when the database holds more matches than one query page returned. */
+  truncated: boolean;
 }
 
 /** One person named by the page's owner property. */

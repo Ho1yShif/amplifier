@@ -7,6 +7,7 @@ import { readLaunch } from "../notion/launch.js";
 import { isLaunch, type Launch, type Owner } from "../notion/types.js";
 import { isResolved, lookupUser, openDm } from "../slack/lookupUser.js";
 import { postNote } from "../slack/postNote.js";
+import { resolveLaunchPageId } from "./launchPage.js";
 import { pingedKey, pingInflightKey, releasePing } from "./pinged.js";
 import {
   ownerLabel,
@@ -18,7 +19,14 @@ import { INFLIGHT_TTL_SECONDS } from "./seen.js";
 
 export interface PingOwnersInput {
   /** Notion page id from the webhook, or pasted in for a manual run. */
-  pageId: string;
+  pageId?: string;
+  /**
+   * Permalink to the live post, or its Typefully share URL. Searches the
+   * launch database for the page carrying that link. Needs NOTION_DATABASE_ID.
+   */
+  url?: string;
+  /** Typefully draft id, searched the same way as url. */
+  draftId?: string;
   /** Ping a page the marker already records. Re-sends the DMs. */
   force?: boolean;
   dryRun?: boolean;
@@ -151,9 +159,11 @@ export async function pingOwnersImpl(
   input: PingOwnersInput,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<PingOwnersResult> {
-  const pageId = input.pageId?.trim();
-  if (!pageId) {
-    throw new Error("Pass the Notion page id as pageId.");
+  if (!input.pageId?.trim() && !input.url && input.draftId === undefined) {
+    throw new Error(
+      "Pass the Notion page id as pageId, or the post's permalink as url, or its Typefully id " +
+        "as draftId.",
+    );
   }
 
   const config = loadConfig(
@@ -163,6 +173,19 @@ export async function pingOwnersImpl(
     },
     env,
   );
+
+  // A URL reaches the page the long way round: Typefully turns the permalink
+  // into the draft's share URL, and that share URL is the link on the page.
+  const pageId =
+    input.pageId?.trim() ||
+    (await resolveLaunchPageId(
+      ctx,
+      {
+        ...(input.url !== undefined ? { url: input.url } : {}),
+        ...(input.draftId !== undefined ? { draftId: input.draftId } : {}),
+      },
+      config,
+    ));
 
   // Marker, then lock, then the work, then the marker again — the order
   // `announceGroups` uses. It matters more here: a property edit is something
@@ -240,6 +263,9 @@ export async function pingOwnersImpl(
 
 /**
  * DM a launch's owners that it is time to amplify.
+ *
+ * Takes the Notion page id the webhook carries, or a live post's permalink,
+ * which it turns into a page id through Typefully's share URL.
  *
  * No retry policy, matching `amplifier.announcePost`. A DM that failed to send
  * is better re-run by hand than re-sent on a schedule, and the Notion delivery

@@ -1,6 +1,6 @@
 import { createHttpClient, type FetchLike } from "@render-lab/tasks-core";
 import { checkedBaseUrl } from "../http/baseUrl.js";
-import type { NotionPage } from "./types.js";
+import type { NotionDataSource, NotionDatabase, NotionPage, QueryResult } from "./types.js";
 
 /**
  * The slice of the Notion API amplifier needs. The impl depends on this port
@@ -9,6 +9,12 @@ import type { NotionPage } from "./types.js";
 export interface NotionPort {
   /** One page, with its property values. */
   getPage(pageId: string): Promise<NotionPage>;
+  /** One database, read for the data sources under it. */
+  getDatabase(databaseId: string): Promise<NotionDatabase>;
+  /** One data source, read for its property schema. */
+  getDataSource(dataSourceId: string): Promise<NotionDataSource>;
+  /** Pages in a data source matching a filter. The body is Notion's query body. */
+  queryDataSource(dataSourceId: string, body: unknown): Promise<QueryResult>;
 }
 
 export interface NotionDeps {
@@ -67,6 +73,21 @@ export function notionPort(
     async getPage(pageId) {
       const body = await client.call(`/v1/pages/${encodeURIComponent(pageId)}`);
       return (body ?? {}) as NotionPage;
+    },
+    async getDatabase(databaseId) {
+      const body = await client.call(`/v1/databases/${encodeURIComponent(databaseId)}`);
+      return (body ?? {}) as NotionDatabase;
+    },
+    async getDataSource(dataSourceId) {
+      const body = await client.call(`/v1/data_sources/${encodeURIComponent(dataSourceId)}`);
+      return (body ?? {}) as NotionDataSource;
+    },
+    async queryDataSource(dataSourceId, query) {
+      const body = await client.call(`/v1/data_sources/${encodeURIComponent(dataSourceId)}/query`, {
+        method: "POST",
+        body: query,
+      });
+      return (body ?? {}) as QueryResult;
     },
   };
 }
