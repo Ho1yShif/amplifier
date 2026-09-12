@@ -128,14 +128,16 @@ function stateMessage(failure: "malformed" | "bad-signature" | "expired"): strin
 /**
  * The error `amplifier.saveUserToken` reported, or undefined on success.
  *
- * `results` is whatever the run returned, so its shape is checked rather than
- * asserted.
+ * The Render API reports a run's results as an array, one entry per argument,
+ * and this callback starts the task with one. `results` is typed `unknown`, so
+ * the shape is checked rather than asserted.
  */
 function exchangeError(results: unknown): string | undefined {
-  if (typeof results !== "object" || results === null) {
+  const result = Array.isArray(results) ? results[0] : results;
+  if (typeof result !== "object" || result === null) {
     return "The token exchange returned nothing readable.";
   }
-  const r = results as { saved?: unknown; error?: unknown };
+  const r = result as { saved?: unknown; error?: unknown };
   if (r.saved === true) return undefined;
   return typeof r.error === "string" ? r.error : "The token was not saved.";
 }

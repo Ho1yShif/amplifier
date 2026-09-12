@@ -208,7 +208,7 @@ describe("repostImpl, the refusals", () => {
 
     expect(result).toEqual({ reposted: false, reason: "no-note" });
     expect(posted(calls)).toHaveLength(0);
-    expect(texts[0]).toContain("too old to repost");
+    expect(texts[0]).toContain("no stored text for this note");
   });
 
   it("asks the clicker to join the channel on not_in_channel", async () => {

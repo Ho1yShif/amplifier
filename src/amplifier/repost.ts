@@ -83,8 +83,9 @@ export async function repostImpl(
   const note = await readNote(ctx, input.noteKey);
   if (note === null) {
     await reply(
-      `This note is too old to repost — amplifier keeps its text for ` +
-        `${config.seenTtlSeconds / 86_400} days. Copy the links across by hand.`,
+      `Amplifier has no stored text for this note, so it cannot repost it. A note is ` +
+        `kept for ${config.seenTtlSeconds / 86_400} days, so this one has probably ` +
+        `expired. Copy the links across by hand.`,
     );
     return { reposted: false, reason: "no-note" };
   }
