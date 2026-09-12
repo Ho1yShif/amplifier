@@ -128,7 +128,7 @@ region Oregon, built from `main`.
 1. Create the Slack app and copy a credential, following [Slack credentials](#slack-credentials) below. Nothing in Render has to exist first, and step 4 needs the credential.
 2. Create the Workflow service, following [Creating the Workflow service](#creating-the-workflow-service) below. Note the slug it prints.
 3. Run `render workflows start <slug>/ping --input='[]'` to confirm the task registry loaded, before any secret is set. `ping` takes no arguments, so the input array is empty, and it returns `pong`. If the task list is empty, the build shipped but `dist/main.js` registered nothing, and the deploy logs say why.
-4. Create the two env groups in the Dashboard, under Env Groups, and add the keys below. Do this before applying the Blueprint. `sync: false` is ignored inside an env var group, so the apply never prompts for these, and a receiver whose `RENDER_API_KEY` is empty exits at startup with `RenderError: API token is required`.
+4. Create the two env groups in the Dashboard, under Env Groups, and add the keys below. Do this before applying the Blueprint. `sync: false` is ignored inside an env var group, so the apply never prompts for these, and a receiver whose `RENDER_API_KEY` is empty exits at startup with `RenderError: API token is required`. A receiver whose `WORKFLOW_SLUG` is empty exits the same way, naming the variable.
 
    | Group                | Key                       | Value                                                  |
    | -------------------- | ------------------------- | ------------------------------------------------------ |
@@ -433,15 +433,15 @@ Every variable above reaches the Workflow service through the `amplifier-workflo
 
 The table above covers the Workflow service. These variables belong to the `amplifier-webhook` service. They reach it through the `amplifier-triggers` env group, so set them there rather than on the service. `render.yaml` gives the service only `fromGroup: amplifier-triggers`, and a variable added straight to the service is removed on the next Blueprint sync.
 
-| Variable                   | Default               | Range | Notes                                                                                                   |
-| -------------------------- | --------------------- | ----- | ------------------------------------------------------------------------------------------------------- |
-| `RENDER_API_KEY`           | —                     | —     | Required. Authenticates the dispatch call to the Render API.                                            |
-| `WORKFLOW_SLUG`            | —                     | —     | Required. Set by hand in the Dashboard to the Workflow service's slug, `amplifier` for the Render team. |
-| `TYPEFULLY_WEBHOOK_SECRET` | —                     | —     | Required. The signing secret from Typefully, Settings > API. Unset means every delivery gets a 401.     |
-| `SLACK_SIGNING_SECRET`     | —                     | —     | Verifies Repost clicks and signs the OAuth `state`. Unset means every Slack request gets a 401.         |
-| `SLACK_CLIENT_ID`          | —                     | —     | Builds the authorize link. The client secret does not belong here.                                      |
-| `AMPLIFIER_PUBLIC_URL`     | `RENDER_EXTERNAL_URL` | —     | The receiver's own base URL, used to build the OAuth redirect. Only needed locally.                     |
-| `PORT`                     | `3000`                | —     | Render sets this. Only needed to run the receiver locally.                                              |
+| Variable                   | Default               | Range | Notes                                                                                                                                             |
+| -------------------------- | --------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RENDER_API_KEY`           | —                     | —     | Required. Authenticates the dispatch call to the Render API.                                                                                      |
+| `WORKFLOW_SLUG`            | —                     | —     | Required. Set by hand in the Dashboard to the Workflow service's slug, `amplifier` for the Render team. The receiver refuses to start without it. |
+| `TYPEFULLY_WEBHOOK_SECRET` | —                     | —     | Required. The signing secret from Typefully, Settings > API. Unset means every delivery gets a 401.                                               |
+| `SLACK_SIGNING_SECRET`     | —                     | —     | Verifies Repost clicks and signs the OAuth `state`. Unset means every Slack request gets a 401.                                                   |
+| `SLACK_CLIENT_ID`          | —                     | —     | Builds the authorize link. The client secret does not belong here.                                                                                |
+| `AMPLIFIER_PUBLIC_URL`     | `RENDER_EXTERNAL_URL` | —     | The receiver's own base URL, used to build the OAuth redirect. Only needed locally.                                                               |
+| `PORT`                     | `3000`                | —     | Render sets this. Only needed to run the receiver locally.                                                                                        |
 
 ## Adding Twitter or LinkedIn directly
 

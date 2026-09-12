@@ -10,6 +10,15 @@ import { serve } from "@hono/node-server";
 import { renderDispatcher } from "@render-lab/triggers";
 import { buildReceiver } from "./receiver.js";
 
-const slug = process.env.WORKFLOW_SLUG ?? "";
+// Refuse to boot without a slug, rather than pass "" to the dispatcher. An
+// empty slug still answers the health check, so the service would deploy green
+// and fail on its first webhook instead of failing the deploy.
+const slug = process.env.WORKFLOW_SLUG;
+if (!slug) {
+  throw new Error(
+    "WORKFLOW_SLUG is required for the webhook receiver. Set it to the Workflow " +
+      "service's slug, which is in its Render dashboard URL.",
+  );
+}
 const app = buildReceiver({ dispatcher: renderDispatcher({ slug }), workflowSlug: slug });
 serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 3000) });
