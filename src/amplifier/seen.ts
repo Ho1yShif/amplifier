@@ -131,25 +131,26 @@ export async function markAnnounced(
 }
 
 /**
- * Release in-flight locks so a later run can announce these drafts.
+ * Release one in-flight lock, whatever it covers.
  *
  * A failed unlock is logged, not thrown. The lock expires on its own after
  * `INFLIGHT_TTL_SECONDS`, so releasing it early only brings the next run's
  * retry forward, and a caller that is already throwing must not lose its error
  * to a cleanup failure.
  */
+export async function releaseClaim(ctx: TaskContext, claim: Claim): Promise<void> {
+  try {
+    await ctx.run(unlock, { key: claim.key, token: claim.token });
+  } catch (err) {
+    console.error(
+      `[amplifier] Could not release the in-flight lock ${claim.key}. It expires in ` +
+        `${INFLIGHT_TTL_SECONDS}s and the next run retries what it covers.`,
+      err,
+    );
+  }
+}
+
+/** Release in-flight locks so a later run can announce these drafts. */
 export async function releaseGroup(ctx: TaskContext, claims: Claim[]): Promise<void> {
-  await Promise.all(
-    claims.map(async (claim) => {
-      try {
-        await ctx.run(unlock, { key: claim.key, token: claim.token });
-      } catch (err) {
-        console.error(
-          `[amplifier] Could not release the in-flight lock ${claim.key}. It expires in ` +
-            `${INFLIGHT_TTL_SECONDS}s and the next run retries the draft.`,
-          err,
-        );
-      }
-    }),
-  );
+  await Promise.all(claims.map((claim) => releaseClaim(ctx, claim)));
 }

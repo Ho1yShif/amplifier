@@ -9,14 +9,14 @@ import { isResolved, lookupUser, openDm } from "../slack/lookupUser.js";
 import { messageLink } from "../slack/permalink.js";
 import { postNote } from "../slack/postNote.js";
 import { resolveLaunchPageId } from "./launchPage.js";
-import { pingedKey, pingInflightKey, releasePing } from "./pinged.js";
+import { pingedKey, pingInflightKey } from "./pinged.js";
 import {
   ownerLabel,
   renderPingDm,
   renderUnreachableNote,
   type UnreachableOwner,
 } from "./pingTemplate.js";
-import { INFLIGHT_TTL_SECONDS } from "./seen.js";
+import { INFLIGHT_TTL_SECONDS, releaseClaim } from "./seen.js";
 
 export interface PingOwnersInput {
   /** Notion page id from the webhook, or pasted in for a manual run. */
@@ -61,6 +61,11 @@ export interface PingOwnersResult {
   unreachable?: UnreachableOwner[];
 }
 
+/** One owner's DM as the result reports it, naming them when Notion did. */
+function pingedOwner(owner: Owner, email: string, delivered: boolean): PingedOwner {
+  return { ...(owner.name ? { name: owner.name } : {}), email, delivered };
+}
+
 /**
  * DM one owner, or say why not.
  *
@@ -98,16 +103,12 @@ async function pingOwner(
   const message = renderPingDm(launch, { channel: dm.channelId, noteUrl, ask: config.pingAsk });
   if (config.dryRun) {
     console.log(`[dry run] would DM ${ownerLabel(owner)}:\n${message.markdown}`);
-    return { ...(owner.name ? { name: owner.name } : {}), email, delivered: false };
+    return pingedOwner(owner, email, false);
   }
 
   try {
     const posted = await ctx.run(postNote, message);
-    return {
-      ...(owner.name ? { name: owner.name } : {}),
-      email,
-      delivered: posted.delivered,
-    };
+    return pingedOwner(owner, email, posted.delivered);
   } catch (err) {
     // The DM is already past SLACK_RETRY, so this is a lasting failure for one
     // person. Reported in the channel rather than thrown, so the owners who
@@ -307,7 +308,7 @@ export async function pingOwnersImpl(
       ...(unreachable.length > 0 ? { unreachable } : {}),
     };
   } finally {
-    await releasePing(ctx, lockKey, token);
+    await releaseClaim(ctx, { key: lockKey, token });
   }
 }
 

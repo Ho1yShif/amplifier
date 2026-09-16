@@ -128,6 +128,35 @@ function repostBlock(repostChannel: string, noteKey: string): SlackBlock {
   };
 }
 
+/** The body parts above the links: the summary alone, or the whole fallback. */
+function noteParts(group: PostGroup, opts: RenderNoteOptions, lead: string): string[] {
+  return opts.summary?.trim() ? [lead] : [...fallbackBlocks(group, opts, lead)];
+}
+
+/**
+ * Assemble one message from its body parts, with the Repost button when the
+ * caller named a channel and a key for it.
+ *
+ * The message supplies `blocks` directly rather than `markdown`. `renderBlocks`
+ * builds blocks from `markdown` only when `blocks` is absent, and the button
+ * needs an `actions` block, so these notes build their own.
+ *
+ * `text` is the notification fallback Slack shows in the sidebar and in push
+ * notifications. It carries the lead line and no URL: a bare URL here renders
+ * an unfurl card.
+ */
+function noteMessage(lead: string, parts: string[], opts: RenderParentOptions): PostMessageInput {
+  const blocks: SlackBlock[] = [section(body(parts))];
+  if (opts.repostChannel && opts.noteKey) {
+    blocks.push(repostBlock(opts.repostChannel, opts.noteKey));
+  }
+  return {
+    text: lead,
+    blocks,
+    ...(opts.channel ? { channel: opts.channel } : {}),
+  };
+}
+
 /**
  * Build the parent message of an announcement thread.
  *
@@ -135,33 +164,12 @@ function repostBlock(repostChannel: string, noteKey: string): SlackBlock {
  * links are replies. The 🧵 says so, because a parent with no links reads as a
  * note someone forgot to finish. The dropped-platform line stays here rather
  * than on a reply, because it is about the announcement and not about one link.
- *
- * The parent supplies `blocks` directly rather than `markdown`. `renderBlocks`
- * builds blocks from `markdown` only when `blocks` is absent, and the button
- * needs an `actions` block, so the parent builds its own.
- *
- * `text` is the notification fallback Slack shows in the sidebar and in push
- * notifications. It carries the lead line and no URL: a bare URL here renders
- * an unfurl card.
  */
 export function renderParent(group: PostGroup, opts: RenderParentOptions = {}): PostMessageInput {
   const lead = leadLine(opts);
-  const summary = opts.summary?.trim();
-  const parts = summary
-    ? [`${lead}${THREAD_MARKER}`]
-    : [...fallbackBlocks(group, opts, `${lead}${THREAD_MARKER}`)];
+  const parts = noteParts(group, opts, `${lead}${THREAD_MARKER}`);
   parts.push(droppedLine(opts.droppedPlatforms ?? []));
-
-  const blocks: SlackBlock[] = [section(body(parts))];
-  if (opts.repostChannel && opts.noteKey) {
-    blocks.push(repostBlock(opts.repostChannel, opts.noteKey));
-  }
-
-  return {
-    text: lead,
-    blocks,
-    ...(opts.channel ? { channel: opts.channel } : {}),
-  };
+  return noteMessage(lead, parts, opts);
 }
 
 /**
@@ -187,31 +195,20 @@ export function renderChildren(group: PostGroup, opts: RenderNoteOptions = {}): 
  * One link is not a thread, so it stays one message with no 🧵 and no reply.
  * The link is not bulleted, because one link is not a list.
  *
- * It carries the Repost button and so supplies `blocks`, the same way
- * `renderParent` does. An owner of a single-platform post is DMed the link to
- * this message, so without the button there is nothing for them to click.
+ * It carries the Repost button, the same way `renderParent` does. An owner of a
+ * single-platform post is DMed the link to this message, so without the button
+ * there is nothing for them to click.
  */
 export function renderFlatNote(group: PostGroup, opts: RenderParentOptions = {}): PostMessageInput {
   const lead = leadLine(opts);
-  const summary = opts.summary?.trim();
-  const parts = summary ? [lead] : [...fallbackBlocks(group, opts, lead)];
+  const parts = noteParts(group, opts, lead);
   parts.push(
     orderedLinks(group)
       .map((l) => linkMrkdwn(l, group.shareUrl))
       .join("\n"),
   );
   parts.push(droppedLine(opts.droppedPlatforms ?? []));
-
-  const blocks: SlackBlock[] = [section(body(parts))];
-  if (opts.repostChannel && opts.noteKey) {
-    blocks.push(repostBlock(opts.repostChannel, opts.noteKey));
-  }
-
-  return {
-    text: lead,
-    blocks,
-    ...(opts.channel ? { channel: opts.channel } : {}),
-  };
+  return noteMessage(lead, parts, opts);
 }
 
 /**
