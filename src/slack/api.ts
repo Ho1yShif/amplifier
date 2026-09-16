@@ -36,6 +36,10 @@ export interface SlackApiResponse {
  * these two methods go over their own client. It throws on a non-2xx, which is
  * what fires the durable retry, and returns `ok: false` bodies to the caller:
  * `users_not_found` is an answer about a person, not a transport failure.
+ *
+ * The body is form-encoded. `users.lookupByEmail` reads no JSON body and
+ * answers `invalid_arguments` with "missing required field: email" when it is
+ * sent one.
  */
 export async function callSlack(
   method: string,
@@ -48,14 +52,19 @@ export async function callSlack(
     throw new Error(`SLACK_BOT_TOKEN is unset, so ${method} cannot be called.`);
   }
 
+  const form = new URLSearchParams();
+  for (const [field, value] of Object.entries(body)) {
+    if (value !== undefined && value !== null) form.set(field, String(value));
+  }
+
   const fetchImpl = opts.fetchImpl ?? (fetch as unknown as FetchLike);
   const res = await fetchImpl(`${slackBaseUrl(env)}/${method}`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,
-      "content-type": "application/json; charset=utf-8",
+      "content-type": "application/x-www-form-urlencoded; charset=utf-8",
     },
-    body: JSON.stringify(body),
+    body: form.toString(),
   });
   if (!res.ok) {
     throw new Error(`Slack API ${method} answered ${res.status}: ${await res.text()}`);

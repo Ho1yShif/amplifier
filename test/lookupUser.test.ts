@@ -83,7 +83,7 @@ describe("openDmImpl", () => {
 });
 
 describe("callSlack", () => {
-  it("sends the bot token and the method's JSON body", async () => {
+  it("sends the bot token and a form-encoded body, which is all users.lookupByEmail reads", async () => {
     const fetchImpl = fakeFetch({ ok: true });
 
     await callSlack("users.lookupByEmail", { email: "dana@render.com" }, { env: ENV, fetchImpl });
@@ -92,9 +92,9 @@ describe("callSlack", () => {
       method: "POST",
       headers: {
         authorization: "Bearer xoxb-test",
-        "content-type": "application/json; charset=utf-8",
+        "content-type": "application/x-www-form-urlencoded; charset=utf-8",
       },
-      body: JSON.stringify({ email: "dana@render.com" }),
+      body: "email=dana%40render.com",
     });
   });
 
