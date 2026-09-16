@@ -186,8 +186,12 @@ export function renderChildren(group: PostGroup, opts: RenderNoteOptions = {}): 
  *
  * One link is not a thread, so it stays one message with no 🧵 and no reply.
  * The link is not bulleted, because one link is not a list.
+ *
+ * It carries the Repost button and so supplies `blocks`, the same way
+ * `renderParent` does. An owner of a single-platform post is DMed the link to
+ * this message, so without the button there is nothing for them to click.
  */
-export function renderFlatNote(group: PostGroup, opts: RenderNoteOptions = {}): PostMessageInput {
+export function renderFlatNote(group: PostGroup, opts: RenderParentOptions = {}): PostMessageInput {
   const lead = leadLine(opts);
   const summary = opts.summary?.trim();
   const parts = summary ? [lead] : [...fallbackBlocks(group, opts, lead)];
@@ -198,9 +202,14 @@ export function renderFlatNote(group: PostGroup, opts: RenderNoteOptions = {}): 
   );
   parts.push(droppedLine(opts.droppedPlatforms ?? []));
 
+  const blocks: SlackBlock[] = [section(body(parts))];
+  if (opts.repostChannel && opts.noteKey) {
+    blocks.push(repostBlock(opts.repostChannel, opts.noteKey));
+  }
+
   return {
     text: lead,
-    markdown: body(parts),
+    blocks,
     ...(opts.channel ? { channel: opts.channel } : {}),
   };
 }

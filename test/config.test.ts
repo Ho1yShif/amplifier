@@ -26,6 +26,7 @@ describe("loadConfig", () => {
       notionTypefullyProperty: DEFAULT_TYPEFULLY_PROPERTY,
       notionOwnersProperty: DEFAULT_OWNERS_PROPERTY,
       pingAsk: DEFAULT_PING_ASK,
+      pingOwners: false,
     });
   });
 
@@ -49,6 +50,7 @@ describe("loadConfig", () => {
         NOTION_TYPEFULLY_PROPERTY: "Typefully URL",
         NOTION_OWNERS_PROPERTY: "Owners",
         NOTION_DATABASE_ID: "7dabf9f3eeb64800bdf6b919611ff771",
+        NOTION_TOKEN: "ntn_test",
         AMPLIFIER_PING_ASK: "Amplify it.",
       },
     );
@@ -71,7 +73,24 @@ describe("loadConfig", () => {
       notionOwnersProperty: "Owners",
       notionDatabaseId: "7dabf9f3eeb64800bdf6b919611ff771",
       pingAsk: "Amplify it.",
+      pingOwners: true,
     });
+  });
+
+  it("turns the owner DMs on once Notion is configured, and off on request", () => {
+    const notion = { NOTION_DATABASE_ID: "db_1", NOTION_TOKEN: "ntn_test" };
+    expect(loadConfig({}, notion).pingOwners).toBe(true);
+    expect(loadConfig({}, { NOTION_DATABASE_ID: "db_1" }).pingOwners).toBe(false);
+    expect(loadConfig({}, { NOTION_TOKEN: "ntn_test" }).pingOwners).toBe(false);
+    expect(loadConfig({}, { ...notion, AMPLIFIER_PING_OWNERS: "false" }).pingOwners).toBe(false);
+    expect(loadConfig({}, { ...notion, AMPLIFIER_PING_OWNERS: " " }).pingOwners).toBe(true);
+    expect(loadConfig({}, { AMPLIFIER_PING_OWNERS: "true" }).pingOwners).toBe(true);
+  });
+
+  it("names AMPLIFIER_PING_OWNERS when it is neither true nor false", () => {
+    expect(() => loadConfig({}, { AMPLIFIER_PING_OWNERS: "yes" })).toThrow(
+      /AMPLIFIER_PING_OWNERS must be "true" or "false"/,
+    );
   });
 
   it("lets a per-run input override the env", () => {

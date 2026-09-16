@@ -1,3 +1,4 @@
+import type { PostMessageInput } from "@render-lab/tasks-slack";
 import type { PostGroup } from "../../src/amplifier/group.js";
 import type { Platform, PublishedPost } from "../../src/typefully/types.js";
 
@@ -36,4 +37,20 @@ export function group(overrides?: Partial<PostGroup>): PostGroup {
     links: [{ platform: "x", url: "https://example.com/x/1", publishedAt: "2026-09-04T15:00:00Z" }],
     ...overrides,
   };
+}
+
+/**
+ * One message's body as text.
+ *
+ * A note carrying the Repost button supplies `blocks` and no `markdown`, so the
+ * section blocks are read back out.
+ */
+export function messageBody(message: PostMessageInput): string {
+  if (message.markdown) return message.markdown;
+  return (message.blocks ?? [])
+    .flatMap((block) => {
+      const text = (block as { text?: { text?: unknown } }).text?.text;
+      return typeof text === "string" ? [text] : [];
+    })
+    .join("\n\n");
 }

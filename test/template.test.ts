@@ -206,21 +206,24 @@ describe("renderChildren", () => {
 
 describe("renderFlatNote", () => {
   it("holds the lead line and the link in one message, with no 🧵", () => {
-    const md =
-      renderFlatNote(singleLink, { summary: "Cold starts are 40% faster." }).markdown ?? "";
-    expect(md).toBe("Cold starts are 40% faster.\n\n<https://x.com/render/status/1|X post>");
-    expect(md).not.toContain("🧵");
+    const body = sectionText(
+      renderFlatNote(singleLink, { summary: "Cold starts are 40% faster." }).blocks,
+    );
+    expect(body).toBe("Cold starts are 40% faster.\n\n<https://x.com/render/status/1|X post>");
+    expect(body).not.toContain("🧵");
   });
 
   it("does not bullet the one link", () => {
-    expect(renderFlatNote(singleLink, { summary: "Faster." }).markdown).not.toContain("•");
+    expect(sectionText(renderFlatNote(singleLink, { summary: "Faster." }).blocks)).not.toContain(
+      "•",
+    );
   });
 
   it("keeps the fallback lead line, the failure and the quote", () => {
-    const md = renderFlatNote(singleLink, { summaryError: "boom" }).markdown ?? "";
-    expect(md.startsWith(DEFAULT_CALL_TO_ACTION)).toBe(true);
-    expect(md).toContain("_(Summarization LLM call failed: boom)_");
-    expect(md).toContain("> We cut cold starts on Render by 40%.");
+    const body = sectionText(renderFlatNote(singleLink, { summaryError: "boom" }).blocks);
+    expect(body.startsWith(DEFAULT_CALL_TO_ACTION)).toBe(true);
+    expect(body).toContain("_(Summarization LLM call failed: boom)_");
+    expect(body).toContain("> We cut cold starts on Render by 40%.");
   });
 
   it("quotes one preview per draft when drafts merged", () => {
@@ -229,22 +232,43 @@ describe("renderFlatNote", () => {
       draftIds: ["1", "2"],
       previews: ["first", "second"],
     };
-    const md = renderFlatNote(merged).markdown ?? "";
-    expect(md).toContain("> first");
-    expect(md).toContain("> second");
+    const body = sectionText(renderFlatNote(merged).blocks);
+    expect(body).toContain("> first");
+    expect(body).toContain("> second");
   });
 
   it("names a dropped platform", () => {
-    const md =
-      renderFlatNote(singleLink, { summary: "Faster.", droppedPlatforms: ["linkedin"] }).markdown ??
-      "";
-    expect(md).toContain("_LinkedIn had not published yet, so there is no link for it._");
+    const body = sectionText(
+      renderFlatNote(singleLink, { summary: "Faster.", droppedPlatforms: ["linkedin"] }).blocks,
+    );
+    expect(body).toContain("_LinkedIn had not published yet, so there is no link for it._");
   });
 
   it("sets no title and a plain-text fallback with no bare URL", () => {
     const note = renderFlatNote(singleLink, { summary: "Faster." });
     expect(note.title).toBeUndefined();
     expect(note.text).not.toContain("https://");
+  });
+
+  it("supplies blocks and no markdown, so the button survives rendering", () => {
+    const note = renderFlatNote(singleLink, { summary: "Faster." });
+    expect(note.markdown).toBeUndefined();
+    expect(note.blocks?.[0]).toMatchObject({ type: "section" });
+  });
+
+  it("carries the Repost button, holding the note's key", () => {
+    const note = renderFlatNote(singleLink, {
+      summary: "Faster.",
+      repostChannel: "amplify-wider",
+      noteKey: "k",
+    });
+    expect(actionsBlock(note.blocks)).toMatchObject({
+      elements: [{ text: { text: "Repost to #amplify-wider" }, value: "k" }],
+    });
+  });
+
+  it("carries no button without a repost channel", () => {
+    expect(actionsBlock(renderFlatNote(singleLink, { summary: "Faster." }).blocks)).toBeUndefined();
   });
 
   it("passes the channel through", () => {
@@ -264,8 +288,19 @@ describe("withoutRepostButton", () => {
     expect(sectionText(stripped.blocks)).toBe("Faster. 🧵");
   });
 
+  it("drops the button from a flat note too", () => {
+    const flat = renderFlatNote(singleLink, {
+      summary: "Faster.",
+      repostChannel: "amplify-wider",
+      noteKey: "k",
+    });
+    const stripped = withoutRepostButton(flat);
+    expect(actionsBlock(stripped.blocks)).toBeUndefined();
+    expect(sectionText(stripped.blocks)).toContain("Faster.");
+  });
+
   it("leaves a message with no blocks alone", () => {
-    const flat = renderFlatNote(singleLink, { summary: "Faster." });
-    expect(withoutRepostButton(flat)).toEqual(flat);
+    const reply = { text: "X post", markdown: "<https://x.com/render/status/1|X post>" };
+    expect(withoutRepostButton(reply)).toEqual(reply);
   });
 });

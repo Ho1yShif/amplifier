@@ -17,6 +17,13 @@ function ctxFor(overrides: TaskHandlers = {}) {
   });
 }
 
+/** Notion configured, which is what turns the owner DMs on. */
+const WITH_NOTION = {
+  TYPEFULLY_SOCIAL_SET_ID: "set_1",
+  NOTION_DATABASE_ID: "db_1",
+  NOTION_TOKEN: "ntn_test",
+};
+
 /**
  * Run with only the social set in the environment, so a developer's shell
  * cannot reach loadConfig and change a result.
@@ -139,22 +146,20 @@ describe("announcePostImpl", () => {
     }
   });
 
-  it("DMs the launch's Notion owners when asked", async () => {
+  it("DMs the launch's owners with the note's channel and ts", async () => {
     const { ctx, calls } = ctxFor();
 
-    const result = await announcePostImpl(
-      ctx,
-      { draftId: "1", pingOwners: true },
-      { TYPEFULLY_SOCIAL_SET_ID: "set_1", NOTION_DATABASE_ID: "db_1" },
-    );
+    const result = await announcePostImpl(ctx, { draftId: "1" }, WITH_NOTION);
 
     expect(result.note?.delivered).toBe(true);
-    // No launch page carries the link, so the ping finds nothing to DM.
-    expect(calls.filter((c) => c.name === "amplifier.pingOwners")).toHaveLength(1);
-    expect(calls.find((c) => c.name === "amplifier.pingOwners")?.input).toEqual({ draftId: "1" });
+    expect(calls.find((c) => c.name === "amplifier.pingOwners")?.input).toEqual({
+      draftId: "1",
+      noteChannel: "C_NOTE",
+      noteTs: "17580000.001",
+    });
   });
 
-  it("leaves the owners alone by default", async () => {
+  it("leaves the owners alone when Notion is not configured", async () => {
     const { ctx, calls } = ctxFor();
 
     await announce(ctx, { draftId: "1" });

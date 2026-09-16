@@ -33,10 +33,11 @@ Workflows yet. Read [Deployment](#deployment) first; the button is step 5.
   5  llm.complete ────────────────────────────────┼──▶ Anthropic
   6  claimGroup, one kv.lock per draft ───────────┼──▶ amplifier-kv
   7  amplifier.postNote, parent then replies ─────┼──▶ Slack #amplify
-  8  markAnnounced, then releaseGroup ────────────┴──▶ amplifier-kv
+  8  markAnnounced, then releaseGroup ────────────┼──▶ amplifier-kv
+  9  amplifier.pingOwners ────────────────────────┴──▶ Notion API, Slack DMs
 ```
 
-Steps 5 through 8 run once per group.
+Steps 5 through 9 run once per group.
 
 Typefully posts to the `amplifier-webhook` service when a draft publishes. The receiver verifies the delivery and starts `amplifier.handleEvent` on the amplifier Workflow service, which retries at 1m, 2m, 4m, and 8m while a platform is still publishing. That task:
 
@@ -48,10 +49,11 @@ Typefully posts to the `amplifier-webhook` service when a draft publishes. The r
 6. Takes a 5-minute lock per draft.
 7. Posts the note through `amplifier.postNote`: a parent message, then one threaded reply per platform link.
 8. Records each draft as announced for 30 days.
+9. Runs `amplifier.pingOwners`, which finds the launch page in Notion and DMs each owner the link to the note it just posted. See [Pinging a launch's owners](#pinging-a-launchs-owners).
 
 `amplifier.postNote` wraps the vendor's `postMessageImpl` and adds `unfurl_links: false`, `unfurl_media: false` and, on a reply, `thread_ts` to the request body. `@render-lab/tasks-slack` 0.3.0 sends none of them and exposes no option for them. The wrapper can go away once the vendor does.
 
-A cross-post is a thread. The parent carries the summary line, a 🧵, and a Repost button; each platform link is a reply.
+Every note carries a Repost button. A cross-post is a thread: the parent carries the summary line and the 🧵, and each platform link is a reply.
 
 ```
 Cursor Origin is now a supported Git provider on Render. Help spread the word 🧵
@@ -66,6 +68,7 @@ A post that only went out on one platform is one flat message, with no thread an
 Please like/share our new customer story for OpenAI
 
 <https://x.com/…|X post>
+[ Repost to #amplify-wider ]
 ```
 
 When the summary call fails, the note still goes out. The parent opens with `AMPLIFIER_CALL_TO_ACTION`, names the reason, and quotes the draft preview.
@@ -145,7 +148,7 @@ region Oregon, built from `main`.
 
    `NOTION_TOKEN` is only needed for the owner DMs; leave it out if you only want the announce path. See [Pinging a launch's owners](#pinging-a-launchs-owners).
 
-   `TYPEFULLY_WEBHOOK_SECRET` belongs in `amplifier-triggers` too, but Typefully does not show it until step 11, so leave it out for now. `NOTION_WEBHOOK_SECRET` belongs there as well and comes later still, in step 14, because Notion produces it only when the subscription is created. Leave `AMPLIFIER_SUMMARY_MODEL` out as well; `render.yaml` gives it a literal value and the apply adds it to `amplifier-workflow`. `REDIS_URL` comes later, in step 9, because `amplifier-kv` does not exist yet. Nothing here can use `generateValue`; every value is one you paste in.
+   `TYPEFULLY_WEBHOOK_SECRET` belongs in `amplifier-triggers` too, but Typefully does not show it until step 11, so leave it out for now. Leave `AMPLIFIER_SUMMARY_MODEL` out as well; `render.yaml` gives it a literal value and the apply adds it to `amplifier-workflow`. `REDIS_URL` comes later, in step 9, because `amplifier-kv` does not exist yet. Nothing here can use `generateValue`; every value is one you paste in.
 
 5. Apply `render.yaml`, with the Deploy to Render button above or from the Dashboard, to create the `amplifier-webhook` service and the Key Value instance, and to link `amplifier-triggers` to the receiver. The apply asks for no values, because step 4 set them all.
 6. Point the Slack app at the receiver, now that it has a hostname, following [Interactivity and the OAuth redirect](#interactivity-and-the-oauth-redirect). It sets the two Slack URLs and adds `AMPLIFIER_PUBLIC_URL` to `amplifier-workflow`. Skip this step if you are not using the Repost button.
@@ -156,7 +159,7 @@ region Oregon, built from `main`.
 11. Register the receiver in Typefully, following [Registering the Typefully webhook](#registering-the-typefully-webhook) below.
 12. Add `DRY_RUN=true` to `amplifier-workflow`, publish a couple of posts, and read the Workflow logs. The parent is logged after `[dry run] would post:` and each threaded link after `[dry run] would reply:`, in the order a real run would send them. Check the thread shape here before the first real note.
 13. Remove `DRY_RUN` from `amplifier-workflow` so runs post to Slack.
-14. Create the Notion integration and register the subscription, following [Notion integration and webhook](#notion-integration-and-webhook) below. Skip this step if you only want the announce path.
+14. Create the Notion integration, following [Notion integration](#notion-integration) below. Skip this step if you only want the channel note and no owner DMs.
 
 ### Creating the Workflow service
 
@@ -213,11 +216,11 @@ so `render workflows create` needs no `--env-var` or `--env-file` flags.
 4. Typefully now shows a signing secret. Add a new key to the `amplifier-triggers` env group, named `TYPEFULLY_WEBHOOK_SECRET`, and paste the secret as its value. The key does not exist yet, because Typefully creates the secret only when you save the webhook, so deployment step 4 could not add it.
 5. Redeploy `amplifier-webhook`. It reads `TYPEFULLY_WEBHOOK_SECRET` at startup, so it rejects every delivery until it restarts with the new value.
 
-### Notion integration and webhook
+### Notion integration
 
-Do this after the receiver is deployed. Every call sends `NOTION_TOKEN` as a bearer token, and
-Notion's two kinds of integration both produce one, so create whichever kind you can and then
-follow [Database id, webhook and secret](#database-id-webhook-and-secret) for the rest.
+Every call sends `NOTION_TOKEN` as a bearer token, and Notion's two kinds of integration both
+produce one, so create whichever kind you can and then follow
+[Database id and first run](#database-id-and-first-run) for the rest.
 
 An internal integration is the shorter path, and creating one requires the workspace that holds the
 launch database to allow it. An OAuth integration lives in a workspace you control, and whoever
@@ -287,10 +290,7 @@ Amplifier has no Notion callback route, so you do that exchange by hand with `cu
 Re-run steps 5 to 7 to add a page the grant does not cover, or add it from the database's **···** >
 **Connections** menu, which works for either kind of integration.
 
-#### Database id, webhook and secret
-
-Keep this order. The handshake in step 5 only works while `NOTION_WEBHOOK_SECRET` is unset, which is
-exactly when you need it.
+#### Database id and first run
 
 1. Copy the launch database's id. Open the database as a full page and take the 32 hex characters
    in the URL before the `?`, so
@@ -303,12 +303,14 @@ exactly when you need it.
    `NOTION_DATABASE_ID` if you are not using the id from `render.yaml`, and redeploy the Workflow
    service. It reads the token on each call, but the redeploy is what puts the new variables on the
    running service.
-3. Dry-run the ping against one real launch page, before any subscription exists to deliver a
-   property edit. Take the page id from the page's URL and run:
+3. Dry-run the ping against one real launch page, so you can read the owner lookups before a live
+   post depends on them. It needs a note already in the channel to link to, so take the page id
+   from the page's URL and the channel id and `ts` from any note's Slack message link, following
+   [Pinging one launch by hand](#pinging-one-launch-by-hand):
 
    ```bash
    render workflows start <slug>/amplifier.pingOwners \
-     --input='[{"pageId":"<page id>","dryRun":true}]'
+     --input='[{"pageId":"<page id>","noteChannel":"<channel id>","noteTs":"<ts>","dryRun":true}]'
    ```
 
    The Workflow logs show one `[dry run] would DM` line per owner amplifier could reach, and a
@@ -316,16 +318,6 @@ exactly when you need it.
    page does have an email means the integration is missing the email capability, or that person
    has no Slack account under that address. A dry run sends nothing, so it writes no pinged marker
    and the page still pings for real later.
-
-4. On the integration's **Webhooks** tab, create a subscription pointing at the receiver's
-   `onrender.com` URL with `/webhooks/notion` appended, and subscribe to
-   `page.properties_updated`. A public integration delivers events from every workspace that
-   authorized it, so read [Security](#security) before you let anyone else authorize this one.
-5. Notion posts a one-time unsigned handshake to that URL and waits. Open the `amplifier-webhook`
-   logs, copy the token from the `Notion subscription handshake` line, and paste it into the Notion
-   UI to verify the subscription.
-6. Add that same token to the `amplifier-triggers` env group as `NOTION_WEBHOOK_SECRET`, and
-   redeploy `amplifier-webhook`. Until then it rejects every delivery.
 
 ### Manual trigger
 
@@ -348,7 +340,6 @@ The Dashboard route is the same task from the Workflow service's **Tasks** tab, 
 | `draftId`      | Typefully draft id, when the URL is not to hand.        |
 | `force`        | Re-post a draft that was already announced.             |
 | `dryRun`       | Log the note instead of posting it.                     |
-| `pingOwners`   | Also DM the launch's Notion owners. Off by default.     |
 | `slackChannel` | Channel the note goes to.                               |
 
 `dryRun: true` prints the note after `[dry run] would post:` in the run's logs and writes no marker, so the real run still has the post to announce.
@@ -367,33 +358,22 @@ render workflows start <slug>/amplifier.checkPosts --input='[{}]'
 
 #### One launch's owners
 
-`amplifier.pingOwners` takes the Notion page id, which is the 32 hex characters at the end of the
-page's URL:
+`amplifier.pingOwners` takes the launch page and the note to link to. Its arguments and the run
+itself are in [Pinging one launch by hand](#pinging-one-launch-by-hand).
 
-```bash
-render workflows start <slug>/amplifier.pingOwners \
-  --input='[{"pageId":"2a1b3c4d5e6f4a8b9c0d1e2f3a4b5c6d"}]'
-```
+| Field          | What it does                                                     |
+| -------------- | ---------------------------------------------------------------- |
+| `pageId`       | The Notion page to read. One of `pageId`, `url` or `draftId`.    |
+| `url`          | Permalink to the live post, or its Typefully share URL.          |
+| `draftId`      | Typefully draft id, when the URL is not to hand.                 |
+| `noteChannel`  | Channel id of the note the DM links to. Required, with `noteTs`. |
+| `noteTs`       | The note's `ts`. Without both of these the run DMs nobody.       |
+| `force`        | DM the owners again for a page already marked pinged.            |
+| `dryRun`       | Log each DM instead of sending it.                               |
+| `slackChannel` | Channel the unreachable-owner note goes to.                      |
 
-It also takes the live post's permalink, which is the link you have in front of you when somebody
-asks why a post got no amplification:
-
-```bash
-render workflows start <slug>/amplifier.pingOwners \
-  --input='[{"url":"https://x.com/render/status/2097716776390058019"}]'
-```
-
-| Field          | What it does                                                  |
-| -------------- | ------------------------------------------------------------- |
-| `pageId`       | The Notion page to read. One of `pageId`, `url` or `draftId`. |
-| `url`          | Permalink to the live post, or its Typefully share URL.       |
-| `draftId`      | Typefully draft id, when the URL is not to hand.              |
-| `force`        | DM the owners again for a page already marked pinged.         |
-| `dryRun`       | Log each DM instead of sending it.                            |
-| `slackChannel` | Channel the unreachable-owner note goes to.                   |
-
-`dryRun: true` still reads the page and resolves each owner, so the logs say who would be DMed and
-who could not be found. It sends nothing and writes no marker.
+`dryRun: true` still reads the page, resolves the note's permalink and looks up each owner, so the
+logs say who would be DMed and who could not be found. It sends nothing and writes no marker.
 
 A `url` or a `draftId` reaches the page in two hops, described in
 [From a post URL to its owners](#from-a-post-url-to-its-owners). It needs `NOTION_DATABASE_ID`,
@@ -405,9 +385,7 @@ The receiver's URL is public, and a signature check is the only thing gating eac
 
 A Typefully delivery whose HMAC-SHA256 signature does not match `TYPEFULLY_WEBHOOK_SECRET` gets a 401 and starts no run, and so does one whose timestamp is more than 15 minutes from the receiver's clock.
 
-A Notion delivery is checked the same way against `NOTION_WEBHOOK_SECRET`, except that Notion signs the raw body alone where Typefully signs `${timestamp}.${rawBody}`. There is no freshness window, because Notion sends no timestamp and retries a failed delivery for about 24 hours, so any window narrow enough to stop a replay would reject legitimate retries. What stops a replay is the pinged marker, which refuses a second delivery for a page whose owners already got their DMs. While `NOTION_WEBHOOK_SECRET` is unset the receiver accepts one body and one only: the unsigned subscription handshake, whose token it logs so you can configure the secret. Every other delivery gets a 401.
-
-An OAuth integration widens what a valid signature means. Notion signs every workspace's deliveries with the same subscription secret, so once a second person authorizes the integration, their page edits reach the receiver and pass the signature check. The receiver does not compare the delivery's workspace against the launch database's, so keep the integration unlisted and authorize it only for the workspace that holds the launch database. `NOTION_DATABASE_ID` is the other limit: a page from any other database is skipped before a DM goes out, as long as the page reports a `database_id`.
+The receiver has no Notion route. The owner DMs run inside the announce path, so nothing on the internet can start a ping. `NOTION_DATABASE_ID` limits which pages a run will read, because a page from any other database is skipped before a DM goes out, as long as the page reports a `database_id`.
 
 `POST /slack/interactivity` recomputes Slack's own HMAC-SHA256 over `v0:{timestamp}:{body}` with `SLACK_SIGNING_SECRET` and rejects a timestamp more than five minutes from the clock. `GET /slack/oauth/callback` takes no signature, so the `state` on the authorize link carries the clicker's user id plus an expiry, HMAC-signed with the same secret. Without that signature anyone could complete the callback and have their own token stored under someone else's id.
 
@@ -532,10 +510,11 @@ The incoming-webhook path is gone, so a deployment that used `SLACK_WEBHOOK_URL`
 
 ## Reposting
 
-When `AMPLIFIER_REPOST_CHANNEL` is set, the parent of every cross-post thread carries a
-**Repost to #<channel>** button. Anyone in the source channel can click it. The thread is
-posted again in the repost channel, as the clicker rather than as the bot, and the source
-parent gets an `AMPLIFIER_REPOST_EMOJI` reaction and a "Reposted by" reply.
+When `AMPLIFIER_REPOST_CHANNEL` is set, every note carries a **Repost to #<channel>**
+button: on the parent of a cross-post thread, and on a single-platform note. Anyone in the
+source channel can click it. The note is posted again in the repost channel, as the clicker
+rather than as the bot, and the source message gets an `AMPLIFIER_REPOST_EMOJI` reaction and
+a "Reposted by" reply.
 
 The first click asks for a one-time authorization. Amplifier has no token for that person
 yet, so it answers privately with an authorize link. Approving it grants `chat:write` for
@@ -546,10 +525,10 @@ Every person who clicks has to be a member of the repost channel. Slack answers
 `not_in_channel` when they are not, and amplifier answers privately asking them to join
 it. The bot never posts in the repost channel and does not need to be a member.
 
-The button stays live after a click, so a second click reposts again. Reposted threads
-carry no button, so a repost cannot itself be reposted.
+The button stays live after a click, so a second click reposts again. A reposted note
+carries no button, so a repost cannot itself be reposted.
 
-`amplifier.repost` reads the thread's text from `amplifier-kv`, not from Slack. The record
+`amplifier.repost` reads the note's text from `amplifier-kv`, not from Slack. The record
 carries the same 30-day TTL as the announced marker, so an older note answers that it is
 too old to repost.
 
@@ -557,55 +536,52 @@ Unset `AMPLIFIER_REPOST_CHANNEL` to turn all of this off: no button, no stored n
 
 ## Pinging a launch's owners
 
-The second path DMs the people who own a launch instead of posting to the channel, and it starts
-in Notion rather than in Typefully. It is for the post that has been written but has not gone
-live: somebody fills in the Typefully URL on a launch page, and the owners hear about it.
+The note goes to the whole channel. The launch's owners get a DM as well, pointing at the thread
+the note is in, so the people responsible for a post hear about it directly.
 
 ```
-   Typefully URL filled in
+   note delivered to #amplify
         │
         ▼
-┌────────────────────┐   POST        ┌──────────────────────────┐
-│ Notion             │ ────────────▶ │ amplifier-webhook        │
-│ content database   │  /webhooks/   │ web service              │
-└────────────────────┘    notion     └────────────┬─────────────┘
-                                      verify, map │ dispatch
-                                                  ▼
-                                     ┌──────────────────────────┐
-                                     │ amplifier (Workflow)     │
-                                     │ amplifier.pingOwners     │
-                                     └────────────┬─────────────┘
-  1  read the pinged marker, then kv.lock ────────┼──▶ amplifier-kv
-  2  notion.getPage ──────────────────────────────┼──▶ Notion API
-  3  lookupUser, then openDm, per owner ──────────┼──▶ Slack
-  4  amplifier.postNote, one DM per owner ────────┼──▶ Slack DMs
-  5  write the pinged marker, release the lock ───┴──▶ amplifier-kv
+┌────────────────────┐               ┌──────────────────────────┐
+│ amplifier          │ ────────────▶ │ amplifier (Workflow)     │
+│ announceGroups     │    ctx.run    │ amplifier.pingOwners     │
+└────────────────────┘               └────────────┬─────────────┘
+  1  notion.findLaunches ─────────────────────────┼──▶ Typefully, Notion
+  2  read the pinged marker, then kv.lock ────────┼──▶ amplifier-kv
+  3  notion.getPage ──────────────────────────────┼──▶ Notion API
+  4  chat.getPermalink for the note ──────────────┼──▶ Slack
+  5  lookupUser, then openDm, per owner ──────────┼──▶ Slack
+  6  amplifier.postNote, one DM per owner ────────┼──▶ Slack DMs
+  7  write the pinged marker, release the lock ───┴──▶ amplifier-kv
 ```
 
-Notion posts `page.properties_updated` to the receiver whenever anybody edits a property on a page
-the integration can see. The receiver verifies the delivery and starts `amplifier.pingOwners` with
-the page id. That task:
+`announceGroups` runs this after every note it posts, so publication is the only trigger. That
+task:
 
-1. Stops when Key Value already records the page as pinged, so a second property edit sends
-   nothing. Pass `force: true` to send anyway.
-2. Takes a 5-minute lock on the page, so two deliveries of the same edit cannot both DM.
-3. Reads the page through `notion.getPage` and pulls the Typefully URL, the owners and the title.
-   A page with no Typefully URL yet, or with nobody in the owner property, is a skip rather than a
-   failure — that is the usual state of a launch page.
-4. Turns each owner's Notion email into a Slack user id with `users.lookupByEmail`, opens a DM with
-   `conversations.open`, and posts the DM through `amplifier.postNote`.
-5. Records the page as pinged for 30 days, then releases the lock.
+1. Finds the launch page from the group's Typefully draft, described in [From a post URL to its owners](#from-a-post-url-to-its-owners).
+2. Stops when Key Value already records the page as pinged, so a re-announced draft DMs nobody twice. Pass `force: true` to send anyway.
+3. Takes a 5-minute lock on the page, so two runs cannot both DM.
+4. Reads the page through `notion.getPage` and pulls the owners and the title. A page with no Typefully URL, or with nobody in the owner property, is a skip rather than a failure — that is the usual state of a launch page.
+5. Asks Slack for the note's permalink with `chat.getPermalink`. Without one it DMs nobody and writes no marker, because a DM naming a thread it cannot link to is worse than no DM.
+6. Turns each owner's Notion email into a Slack user id with `users.lookupByEmail`, opens a DM with `conversations.open`, and posts the DM through `amplifier.postNote`.
+7. Records the page as pinged for 30 days, then releases the lock.
 
-The DM carries the launch name, a link to the Typefully draft, a link back to the Notion page, and
-`AMPLIFIER_PING_ASK`:
+The DM carries the launch name, `AMPLIFIER_PING_ASK`, and the link to the thread:
 
 ```
-*Origin is a supported Git provider* is ready to amplify, and you own it.
+Your *Origin is a supported Git provider* post is ready to amplify! Please click the Repost button in this thread
 
-<https://typefully.com/…|Open it in Typefully>  ·  <https://notion.so/…|Notion page>
-
-Please review it in Typefully, then like and share it when it goes live.
+<https://renderinc.slack.com/archives/C…/p…|Open the thread>
 ```
+
+The owner clicks **Repost to #<channel>** on the note in the channel, not in the DM. Anyone in
+the channel can click it, so a colleague can step in when the owner misses it.
+
+A failed ping is logged and never thrown. The note is already in the channel, so a Notion
+database nobody configured does not cost the channel its announcement. Set
+`AMPLIFIER_PING_OWNERS` to `false` to stop trying; the DMs are on whenever `NOTION_TOKEN` and
+`NOTION_DATABASE_ID` are both set.
 
 An owner with no Slack account under their Notion email gets no DM. Slack answers
 `users_not_found`, and the run posts one message to `SLACK_CHANNEL` naming the launch and that
@@ -624,18 +600,32 @@ integration has the "Read user information, including email addresses" capabilit
 Notion omits the field and returns no error, so every owner reads as having no email and every
 launch ends in the channel note.
 
-`NOTION_DATABASE_ID` is the launch database. The Notion subscription covers every page the
-integration is connected to, so set it to skip pages from anywhere else. For the Render team it is
-the content database the DX team owns, whose Social Calendar view is the one people work in.
+`NOTION_DATABASE_ID` is the launch database, and the run skips a page from anywhere else. For the
+Render team it is the content database the DX team owns, whose Social Calendar view is the one
+people work in.
 
-Delivery is at least once here too. The pinged marker is written after Slack accepts a DM, so a run
-that dies in the gap loses its lock within 5 minutes and the next delivery DMs the owners again.
+The pinged marker is written after Slack accepts a DM, so a run that dies in the gap loses its
+lock within 5 minutes and the next announcement of the same draft DMs the owners again.
+
+### Pinging one launch by hand
+
+`amplifier.pingOwners` also runs on its own, which is the route when a DM was missed. It needs the
+note's channel id and the parent message's `ts`, both of which are in the note's Slack message
+link: **···** > **Copy link** on the message gives
+`https://renderinc.slack.com/archives/C09ABCDEF/p1758000000001100`, where `C09ABCDEF` is
+`noteChannel` and `1758000000.001100` is `noteTs` with a decimal point six digits from the end.
+
+```bash
+render workflows start <slug>/amplifier.pingOwners \
+  --input='[{"pageId":"2a1b3c4d5e6f4a8b9c0d1e2f3a4b5c6d","noteChannel":"C09ABCDEF","noteTs":"1758000000.001100","force":true}]'
+```
+
+`force: true` is what clears the pinged marker the first run wrote.
 
 ### From a post URL to its owners
 
-`amplifier.pingOwners` also accepts a live post's permalink, so a post that is already on X or
-LinkedIn can reach the same owners. A permalink is not on the launch page, so the run gets there in
-two hops:
+The launch page carries a Typefully link, not a permalink, so the run gets from the announced draft
+to the page in two hops:
 
 1. `typefully.listPublished` turns the permalink into its draft, which carries the Typefully share
    URL. The newest 50 published drafts are searched, so an older post needs its `draftId`.
@@ -650,11 +640,9 @@ its exact display name, which comes from the data source's schema rather than fr
 
 Nothing is DMed when no page carries the link. That is the normal state of a post somebody
 published straight from Typefully without a launch page, so the run throws and names the share URL
-it looked for.
+it looked for, and `announceGroups` logs it.
 
-`amplifier.announcePost` can do both at once with `pingOwners: true`: it posts the channel note
-first, then DMs the owners. The note is posted first so a Notion database nobody has configured
-cannot cost the channel its announcement.
+A manual run takes a permalink as `url` instead, or the draft id as `draftId`.
 
 ## Configuration
 
@@ -681,7 +669,8 @@ cannot cost the channel its announcement.
 | `NOTION_OWNERS_PROPERTY`         | `Owner`                     | —     | Name of the launch page's people property. An email or text property is read too.                                                                                                                                                                    |
 | `NOTION_DATABASE_ID`             | —                           | —     | The launch database. Unset means a page from any database the integration can see can ping, and no page can be found by post URL.                                                                                                                    |
 | `NOTION_BASE_URL`                | Notion                      | —     | Local stub only. The token is sent to whatever host this names, so only a loopback address is accepted. Leave it unset in production.                                                                                                                |
-| `AMPLIFIER_PING_ASK`             | see below                   | —     | The ask at the end of an owner's DM.                                                                                                                                                                                                                 |
+| `AMPLIFIER_PING_ASK`             | see below                   | —     | The ask on the first line of an owner's DM.                                                                                                                                                                                                          |
+| `AMPLIFIER_PING_OWNERS`          | see Notes                   | —     | Whether an announcement also DMs the launch's owners. On when `NOTION_TOKEN` and `NOTION_DATABASE_ID` are both set, off otherwise. Set it to `false` to turn the DMs off, or `true` to force them on.                                                |
 | `AMPLIFIER_REPOST_CHANNEL`       | —                           | —     | Channel the Repost button posts to. Unset means no button and no stored note. See [Reposting](#reposting).                                                                                                                                           |
 | `AMPLIFIER_REPOST_EMOJI`         | `white_check_mark`          | —     | Reaction added to a note that has been reposted. Must be an emoji the workspace has, or `reactions.add` answers `invalid_name`.                                                                                                                      |
 | `SLACK_CLIENT_ID`                | —                           | —     | Needed for the user-token exchange. Slack app, Basic Information.                                                                                                                                                                                    |
@@ -697,7 +686,7 @@ no default.
 
 Default call to action: "New Render social post! Please like and share when you have a minute"
 
-Default ping ask: "Please review it in Typefully, then like and share it when it goes live."
+Default ping ask: "Please click the Repost button in this thread"
 
 Every variable above reaches the Workflow service through the `amplifier-workflow` env group, so set them there rather than on the service. You add most of them to the group by hand, in step 4. `AMPLIFIER_SUMMARY_MODEL`, `AMPLIFIER_REPOST_EMOJI`, `NOTION_TYPEFULLY_PROPERTY`, `NOTION_OWNERS_PROPERTY` and `NOTION_DATABASE_ID` have literal values in `render.yaml`, so a Blueprint apply resets a Dashboard override of any of those five.
 
@@ -710,7 +699,6 @@ The table above covers the Workflow service. These variables belong to the `ampl
 | `RENDER_API_KEY`           | —                     | —     | Required. Authenticates the dispatch call to the Render API.                                                                                      |
 | `WORKFLOW_SLUG`            | —                     | —     | Required. Set by hand in the Dashboard to the Workflow service's slug, `amplifier` for the Render team. The receiver refuses to start without it. |
 | `TYPEFULLY_WEBHOOK_SECRET` | —                     | —     | Required. The signing secret from Typefully, Settings > API. Unset means every delivery gets a 401.                                               |
-| `NOTION_WEBHOOK_SECRET`    | —                     | —     | The `verification_token` Notion posts when the subscription is created. Unset means every delivery but the handshake gets a 401.                  |
 | `SLACK_SIGNING_SECRET`     | —                     | —     | Verifies Repost clicks and signs the OAuth `state`. Unset means every Slack request gets a 401.                                                   |
 | `SLACK_CLIENT_ID`          | —                     | —     | Builds the authorize link. The client secret does not belong here.                                                                                |
 | `AMPLIFIER_PUBLIC_URL`     | `RENDER_EXTERNAL_URL` | —     | The receiver's own base URL, used to build the OAuth redirect. Only needed locally.                                                               |

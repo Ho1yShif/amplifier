@@ -17,18 +17,24 @@ const LAUNCH_DATABASE_ID = PAGE.parent?.database_id as string;
 /** Only what pingOwners reads, so a developer's shell cannot change a result. */
 const ENV = { SLACK_CHANNEL: "social", SLACK_BOT_TOKEN: "xoxb-test" };
 
+/** The announcement thread every DM links to. */
+const NOTE = { noteChannel: "C_NOTE", noteTs: "17580000.001" };
+const NOTE_URL = "https://renderinc.slack.com/archives/C_NOTE/p17580000001";
+
 /** A context with the fixture page published, which most tests here want. */
 function ctxFor(overrides: TaskHandlers = {}) {
   return runCtx({
     "notion.getPage": () => ({ page: PAGE }),
     "amplifier.lookupUser": ({ email }) => ({ userId: `U_${email.split("@")[0]}` }),
     "amplifier.openDm": ({ userId }) => ({ channelId: `D_${userId}` }),
+    "amplifier.messageLink": () => ({ url: NOTE_URL }),
     ...overrides,
   });
 }
 
+/** Runs against the fixture page's thread unless the test names another input. */
 function ping(ctx: TaskContext, input: PingOwnersInput, env: NodeJS.ProcessEnv = ENV) {
-  return pingOwnersImpl(ctx, input, env);
+  return pingOwnersImpl(ctx, { ...NOTE, ...input }, env);
 }
 
 /** Every message the run posted, in order. */
@@ -36,9 +42,8 @@ function posts(calls: TaskCall[]) {
   return calls.filter((c) => c.name === "amplifier.postNote").map((c) => c.input);
 }
 
-/** The page's title and its URL come from the fixture, so assert against them. */
+/** The page's title comes from the fixture, so assert against it. */
 const LAUNCH_NAME = "Origin is a supported Git provider";
-const TYPEFULLY_URL = "https://typefully.com/?d=10628613&a=1";
 
 describe("pingOwnersImpl", () => {
   it("DMs every owner and marks the page pinged", async () => {
@@ -56,15 +61,65 @@ describe("pingOwnersImpl", () => {
     });
   });
 
-  it("writes the Typefully link and the launch name into the DM", async () => {
+  it("writes the launch name and the thread link into the DM", async () => {
     const { ctx, calls } = ctxFor();
 
     await ping(ctx, { pageId: PAGE_ID });
 
     const dm = posts(calls)[0];
-    expect(dm.markdown).toContain(`*${LAUNCH_NAME}*`);
-    expect(dm.markdown).toContain(`<${TYPEFULLY_URL}|Open it in Typefully>`);
+    expect(dm.markdown).toContain(`Your *${LAUNCH_NAME}* post is ready to amplify!`);
+    expect(dm.markdown).toContain("Please click the Repost button in this thread");
+    expect(dm.markdown).toContain(`<${NOTE_URL}|Open the thread>`);
+    expect(dm.markdown).not.toContain("typefully.com");
     expect(dm.text).not.toContain("http");
+  });
+
+  it("asks for the thread's channel and ts once, before the owner loop", async () => {
+    const { ctx, calls } = ctxFor();
+
+    await ping(ctx, { pageId: PAGE_ID });
+
+    const links = calls.filter((c) => c.name === "amplifier.messageLink");
+    expect(links.map((c) => c.input)).toEqual([{ channel: "C_NOTE", messageTs: "17580000.001" }]);
+    const order = calls.map((c) => c.name);
+    expect(order.indexOf("amplifier.messageLink")).toBeLessThan(
+      order.indexOf("amplifier.lookupUser"),
+    );
+  });
+
+  it("DMs nobody when the run names no thread", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { ctx, calls } = ctxFor();
+
+      const result = await pingOwnersImpl(ctx, { pageId: PAGE_ID }, ENV);
+
+      expect(result.skipped).toBe("no-thread");
+      expect(posts(calls)).toHaveLength(0);
+      expect(calls.some((c) => c.name === "kv.set")).toBe(false);
+      expect(calls.at(-1)?.name).toBe("kv.unlock");
+      expect(errors.mock.calls[0]?.[0]).toMatch(/No announcement thread for page/);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("DMs nobody when Slack cannot name the thread", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { ctx, calls } = ctxFor({
+        "amplifier.messageLink": () => ({ error: "message_not_found" }),
+      });
+
+      const result = await ping(ctx, { pageId: PAGE_ID });
+
+      expect(result.skipped).toBe("no-thread");
+      expect(posts(calls)).toHaveLength(0);
+      expect(calls.some((c) => c.name === "kv.set")).toBe(false);
+      expect(errors.mock.calls[0]?.[0]).toMatch(/message_not_found/);
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   it("takes the in-flight lock before the page and releases it after", async () => {
@@ -255,7 +310,7 @@ describe("pingOwnersImpl", () => {
 
   it("refuses a run naming no page, URL or draft", async () => {
     const { ctx } = ctxFor();
-    await expect(ping(ctx, {})).rejects.toThrow(/pageId.*url.*draftId/s);
+    await expect(pingOwnersImpl(ctx, NOTE, ENV)).rejects.toThrow(/pageId.*url.*draftId/s);
   });
 
   it("finds the page from a live post's permalink and DMs its owners", async () => {

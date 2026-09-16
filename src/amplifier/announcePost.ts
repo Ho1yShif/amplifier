@@ -6,7 +6,6 @@ import { listPublished } from "../typefully/listPublished.js";
 import { matchPost, noMatchMessage } from "../typefully/match.js";
 import { announceGroups, type NoteResult } from "./announce.js";
 import { groupPosts } from "./group.js";
-import { pingOwners, type PingOwnersResult } from "./pingOwners.js";
 import { seenKey } from "./seen.js";
 
 export interface AnnouncePostInput {
@@ -16,11 +15,6 @@ export interface AnnouncePostInput {
   draftId?: string;
   /** Announce a draft the seen marker already records. Re-posts the note. */
   force?: boolean;
-  /**
-   * Also DM the launch's Notion owners. Off by default, because the channel
-   * note already asks everybody to amplify. Needs NOTION_DATABASE_ID.
-   */
-  pingOwners?: boolean;
   dryRun?: boolean;
   slackChannel?: string;
 }
@@ -32,8 +26,6 @@ export interface AnnouncePostResult {
   note?: NoteResult;
   /** Set when nothing was posted, naming why. */
   skipped?: "announced" | "claimed";
-  /** Present when pingOwners was set. What the owner DMs did. */
-  ping?: PingOwnersResult;
 }
 
 /** Raw implementation of amplifier.announcePost. */
@@ -90,22 +82,14 @@ export async function announcePostImpl(
     return { draftId: post.draftId, dryRun: config.dryRun, skipped: "claimed" };
   }
 
-  // After the note, so a Notion database nobody set up cannot cost the channel
-  // its announcement. pingOwners has its own once-only marker.
-  const ping = input.pingOwners
-    ? await ctx.run(pingOwners, {
-        draftId: post.draftId,
-        ...(input.force !== undefined ? { force: input.force } : {}),
-        ...(input.dryRun !== undefined ? { dryRun: input.dryRun } : {}),
-        ...(input.slackChannel !== undefined ? { slackChannel: input.slackChannel } : {}),
-      })
-    : undefined;
-
-  return { draftId: post.draftId, dryRun: config.dryRun, note, ...(ping ? { ping } : {}) };
+  return { draftId: post.draftId, dryRun: config.dryRun, note };
 }
 
 /**
  * Announce one published post to Slack, given its permalink.
+ *
+ * `announceGroups` DMs the launch's owners afterwards, so there is no flag for
+ * it here. Set AMPLIFIER_PING_OWNERS to false to turn the DMs off.
  *
  * No retry policy, matching `amplifier.checkPosts`. A human is watching this
  * one, and a retry after a delivered note would read its own marker and do

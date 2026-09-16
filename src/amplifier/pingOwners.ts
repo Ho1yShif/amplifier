@@ -6,6 +6,7 @@ import { getPage } from "../notion/getPage.js";
 import { readLaunch } from "../notion/launch.js";
 import { isLaunch, type Launch, type Owner } from "../notion/types.js";
 import { isResolved, lookupUser, openDm } from "../slack/lookupUser.js";
+import { messageLink } from "../slack/permalink.js";
 import { postNote } from "../slack/postNote.js";
 import { resolveLaunchPageId } from "./launchPage.js";
 import { pingedKey, pingInflightKey, releasePing } from "./pinged.js";
@@ -27,6 +28,13 @@ export interface PingOwnersInput {
   url?: string;
   /** Typefully draft id, searched the same way as url. */
   draftId?: string;
+  /**
+   * Channel the announcement thread is in. Both this and `noteTs` are read off
+   * the thread's Slack message link; without them nobody is DMed.
+   */
+  noteChannel?: string;
+  /** The announcement parent's `ts`, which the DM links to. */
+  noteTs?: string;
   /** Ping a page the marker already records. Re-sends the DMs. */
   force?: boolean;
   dryRun?: boolean;
@@ -46,7 +54,7 @@ export interface PingOwnersResult {
   pageId: string;
   dryRun: boolean;
   /** Set when no DM was sent, naming why. */
-  skipped?: "no-url" | "no-owners" | "other-database" | "pinged" | "claimed";
+  skipped?: "no-url" | "no-owners" | "other-database" | "pinged" | "claimed" | "no-thread";
   /** One entry per owner a DM was addressed to. */
   pinged?: PingedOwner[];
   /** Owners with no DM, and why. Named in the channel note. */
@@ -64,6 +72,7 @@ async function pingOwner(
   ctx: TaskContext,
   launch: Launch,
   owner: Owner,
+  noteUrl: string,
   config: AmplifierConfig,
 ): Promise<PingedOwner | UnreachableOwner> {
   const email = owner.email?.trim();
@@ -86,7 +95,7 @@ async function pingOwner(
     return { owner, reason: `Slack answered \`${dm.error}\` opening a DM with ${email}` };
   }
 
-  const message = renderPingDm(launch, { channel: dm.channelId, ask: config.pingAsk });
+  const message = renderPingDm(launch, { channel: dm.channelId, noteUrl, ask: config.pingAsk });
   if (config.dryRun) {
     console.log(`[dry run] would DM ${ownerLabel(owner)}:\n${message.markdown}`);
     return { ...(owner.name ? { name: owner.name } : {}), email, delivered: false };
@@ -106,6 +115,40 @@ async function pingOwner(
     const detail = err instanceof Error ? err.message : String(err);
     return { owner, reason: `the DM to ${email} failed: ${detail}` };
   }
+}
+
+/**
+ * The permalink to the announcement thread, or undefined once it has said why
+ * there is none.
+ *
+ * A DM telling somebody to click a button in a thread it cannot name is worse
+ * than no DM, so a missing channel and `ts`, and a Slack error, both end the
+ * run here.
+ */
+async function threadLink(
+  ctx: TaskContext,
+  pageId: string,
+  input: PingOwnersInput,
+): Promise<string | undefined> {
+  const channel = input.noteChannel?.trim();
+  const messageTs = input.noteTs?.trim();
+  if (!channel || !messageTs) {
+    console.error(
+      `[amplifier] No announcement thread for page ${pageId}, so nobody is DMed. Pass ` +
+        `noteChannel and noteTs, both readable from the thread's Slack message link.`,
+    );
+    return undefined;
+  }
+
+  const link = await ctx.run(messageLink, { channel, messageTs });
+  if (!isResolved(link)) {
+    console.error(
+      `[amplifier] Slack answered \`${link.error}\` for the thread ${channel}/${messageTs} on ` +
+        `page ${pageId}, so nobody is DMed.`,
+    );
+    return undefined;
+  }
+  return link.url;
 }
 
 /** Whether `pingOwner` sent, or tried to send, a DM. */
@@ -188,9 +231,9 @@ export async function pingOwnersImpl(
     ));
 
   // Marker, then lock, then the work, then the marker again — the order
-  // `announceGroups` uses. It matters more here: a property edit is something
-  // people do repeatedly, and Notion retries a failed delivery for about 24
-  // hours, so this task is re-entered far more often than the announce path.
+  // `announceGroups` uses. The announce path runs this after every note it
+  // posts, so a re-announced draft re-enters it, and the marker is what keeps
+  // the owners from being DMed twice.
   const marker = pingedKey(pageId);
   const { value } = await ctx.run(kvGet, { key: marker });
   if (value !== null) {
@@ -228,12 +271,19 @@ export async function pingOwnersImpl(
       return { pageId, dryRun: config.dryRun, skipped: outcome.skip };
     }
 
+    const noteUrl = await threadLink(ctx, pageId, input);
+    if (noteUrl === undefined) {
+      // No pinged marker, so a later run with the thread's channel and `ts`
+      // can still DM these owners.
+      return { pageId, dryRun: config.dryRun, skipped: "no-thread" };
+    }
+
     const pinged: PingedOwner[] = [];
     const unreachable: UnreachableOwner[] = [];
     // Sequential, so the owners are DM'd in the order the property lists them
     // and one slow lookup cannot open every DM at once.
     for (const owner of outcome.owners) {
-      const result = await pingOwner(ctx, outcome, owner, config);
+      const result = await pingOwner(ctx, outcome, owner, noteUrl, config);
       if (isPinged(result)) pinged.push(result);
       else unreachable.push(result);
     }
@@ -262,13 +312,13 @@ export async function pingOwnersImpl(
 }
 
 /**
- * DM a launch's owners that it is time to amplify.
+ * DM a launch's owners the link to its announcement thread.
  *
- * Takes the Notion page id the webhook carries, or a live post's permalink,
- * which it turns into a page id through Typefully's share URL.
+ * Takes the Notion page id, or a live post's permalink, which it turns into a
+ * page id through Typefully's share URL. `announceGroups` runs it after every
+ * announcement; a manual run needs `noteChannel` and `noteTs` as well.
  *
  * No retry policy, matching `amplifier.announcePost`. A DM that failed to send
- * is better re-run by hand than re-sent on a schedule, and the Notion delivery
- * retries on its own.
+ * is better re-run by hand than re-sent on a schedule.
  */
 export const pingOwners = task({ name: "amplifier.pingOwners" }, pingOwnersImpl);

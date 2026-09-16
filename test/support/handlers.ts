@@ -26,8 +26,10 @@ export function runCtx(overrides: TaskHandlers = {}) {
     "kv.get": () => ({ value: null }),
     "kv.set": () => ({ ok: true }),
     "kv.delete": () => ({ deleted: 1 }),
-    // A ts, because announceGroups needs one to thread the replies under.
-    "amplifier.postNote": () => ({ delivered: true, ts: "17580000.001" }),
+    // A channel and a ts, because announceGroups threads the replies under the
+    // ts and hands both to the owner DMs.
+    "amplifier.postNote": () => ({ delivered: true, channel: "C_NOTE", ts: "17580000.001" }),
+    "amplifier.messageLink": () => ({ url: "https://renderinc.slack.com/archives/C_NOTE/p1" }),
     "llm.complete": () => ({ text: SUMMARY_LINE, model: "m", stopReason: "end" }),
     ...overrides,
   });

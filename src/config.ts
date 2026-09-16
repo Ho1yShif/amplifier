@@ -52,6 +52,8 @@ export interface AmplifierConfig {
   notionDatabaseId?: string;
   /** The ask in an owner's DM. */
   pingAsk: string;
+  /** Whether an announcement also DMs the launch's owners. */
+  pingOwners: boolean;
 }
 
 /**
@@ -171,7 +173,33 @@ export function loadConfig(
     notionOwnersProperty: text(undefined, env.NOTION_OWNERS_PROPERTY, DEFAULT_OWNERS_PROPERTY),
     ...(notionDatabaseId ? { notionDatabaseId } : {}),
     pingAsk: text(undefined, env.AMPLIFIER_PING_ASK, DEFAULT_PING_ASK),
+    // On by default once Notion is configured, because an announcement whose
+    // owners hear nothing is the thing this exists to fix. Both variables are
+    // needed: the token reads the page and the database id finds it from the
+    // draft.
+    pingOwners: flag(
+      "AMPLIFIER_PING_OWNERS",
+      env.AMPLIFIER_PING_OWNERS,
+      notionDatabaseId !== undefined && optional(env.NOTION_TOKEN) !== undefined,
+    ),
   };
+}
+
+/**
+ * Resolve one on/off setting from the environment, then the default.
+ *
+ * Unset or blank means the default, matching `whole` and `text`. Any value but
+ * "true" or "false" throws, rather than reading as off: a variable set to "0"
+ * or "no" was meant to turn the setting off, and silently doing the opposite
+ * gives nobody an error to read.
+ */
+function flag(name: string, envValue: string | undefined, fallback: boolean): boolean {
+  const value = envValue?.trim();
+  if (value === undefined || value === "") return fallback;
+  if (value !== "true" && value !== "false") {
+    throw new Error(`${name} must be "true" or "false"; got ${JSON.stringify(envValue)}.`);
+  }
+  return value === "true";
 }
 
 /**

@@ -1,9 +1,8 @@
 # Blueprint for the amplifier trigger layer: the web service that receives
-# Typefully and Notion webhook deliveries and starts workflow runs, plus the Key
-# Value instance that records which posts have been announced and which launch
-# pages have been pinged. The Workflow
-# service itself is created separately because Blueprints don't support
-# Workflows yet.
+# Typefully webhook deliveries and starts workflow runs, plus the Key Value
+# instance that records which posts have been announced and which launch pages
+# have been pinged. The Workflow service itself is created separately because
+# Blueprints don't support Workflows yet.
 #
 # Order: create the Slack app, create the Workflow service, create the two env
 # groups by hand with their values, apply this Blueprint, link amplifier-workflow
@@ -12,9 +11,8 @@
 # Settings > API and copy the signing secret back into TYPEFULLY_WEBHOOK_SECRET,
 # then point the Slack app at the receiver: its Interactivity Request URL at
 # /slack/interactivity and its OAuth Redirect URL at /slack/oauth/callback.
-# The Notion subscription is registered last, because reading its verification
-# token out of the receiver's logs requires NOTION_WEBHOOK_SECRET to still be
-# unset. README, Pinging a launch's owners, has the order.
+# The Notion integration comes last, and needs no receiver route. README,
+# Pinging a launch's owners, has the order.
 projects:
   - name: amplifier
     environments:

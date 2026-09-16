@@ -1,9 +1,8 @@
 import type { PostMessageInput } from "@render-lab/tasks-slack";
 import type { Launch, Owner } from "../notion/types.js";
 
-/** The ask at the end of an owner's DM. Override with AMPLIFIER_PING_ASK. */
-export const DEFAULT_PING_ASK =
-  "Please review it in Typefully, then like and share it when it goes live.";
+/** The ask on the first line of an owner's DM. Override with AMPLIFIER_PING_ASK. */
+export const DEFAULT_PING_ASK = "Please click the Repost button in this thread";
 
 /** Shown in place of a launch name when the Notion page has an empty title. */
 const UNTITLED_LAUNCH = "A Render social post";
@@ -13,6 +12,11 @@ export interface PingOptions {
   channel: string;
   /** The ask in the DM. Defaults to DEFAULT_PING_ASK. */
   ask?: string;
+}
+
+export interface PingDmOptions extends PingOptions {
+  /** Permalink to the announcement thread the Repost button is in. */
+  noteUrl: string;
 }
 
 /** One owner the run could not DM, and the reason in words. */
@@ -40,22 +44,22 @@ export function ownerLabel(owner: Owner): string {
 /**
  * The DM one owner gets.
  *
- * The Typefully link is the point of the message, so it leads the second line
- * as a labelled link rather than a bare URL — `amplifier.postNote` sends
- * `unfurl_links: false`, and a bare URL with no preview card reads as a stray
- * string.
+ * The thread link is the only link, because the Repost button is in the thread
+ * and nothing else needs clicking. It leads the second line as a labelled link
+ * rather than a bare URL — `amplifier.postNote` sends `unfurl_links: false`,
+ * and a bare URL with no preview card reads as a stray string.
+ *
+ * `text` is the sidebar and push-notification fallback, so it carries no URL.
  */
-export function renderPingDm(launch: Launch, opts: PingOptions): PostMessageInput {
+export function renderPingDm(launch: Launch, opts: PingDmOptions): PostMessageInput {
   const name = launchName(launch);
-  const links = [`<${launch.typefullyUrl}|Open it in Typefully>`];
-  if (launch.pageUrl) links.push(`<${launch.pageUrl}|Notion page>`);
+  const ask = (opts.ask ?? DEFAULT_PING_ASK).trim();
 
   return {
-    text: `${name} is ready to amplify.`,
+    text: `Your ${name} post is ready to amplify!`,
     markdown: body([
-      `*${name}* is ready to amplify, and you own it.`,
-      links.join("  ·  "),
-      (opts.ask ?? DEFAULT_PING_ASK).trim(),
+      `Your *${name}* post is ready to amplify! ${ask}`,
+      `<${opts.noteUrl}|Open the thread>`,
     ]),
     channel: opts.channel,
   };

@@ -5,6 +5,7 @@ import { postNote } from "../slack/postNote.js";
 import { isSummary, summarizeGroup, type SummaryOutcome } from "../summary/summarize.js";
 import type { Platform } from "../typefully/types.js";
 import type { PostGroup } from "./group.js";
+import { pingOwners } from "./pingOwners.js";
 import { claimGroup, isClaimed, markAnnounced, releaseGroup } from "./seen.js";
 import { noteKey, storeNote } from "./storedNote.js";
 import {
@@ -86,6 +87,9 @@ export async function announceGroups(
 
     let delivered = false;
     let threadTs: string | undefined;
+    // The channel id Slack echoed back. `parent.channel` may be a bare name,
+    // and `chat.getPermalink` reads an id only.
+    let noteChannel: string | undefined;
     if (config.dryRun) {
       logDryRun(parent, replies);
     } else {
@@ -93,6 +97,7 @@ export async function announceGroups(
         const posted = await ctx.run(postNote, parent);
         delivered = posted.delivered;
         threadTs = posted.ts;
+        noteChannel = posted.channel;
         if (delivered) {
           await markAnnounced(ctx, group.draftIds, config.seenTtlSeconds);
         }
@@ -110,11 +115,18 @@ export async function announceGroups(
           `[amplifier] The Slack port reported the note for ${group.draftIds.join(", ")} ` +
             `undelivered. Those drafts stay unannounced and a later run retries them.`,
         );
-      } else if (replies.length > 0) {
+      } else {
+        // Stored for a flat note too, not only a thread, because both carry the
+        // Repost button now.
         if (config.repostChannel) {
           await storeNote(ctx, key, { parent, replies }, config.seenTtlSeconds);
         }
-        await postReplies(ctx, group, replies, threadTs);
+        if (replies.length > 0) {
+          await postReplies(ctx, group, replies, threadTs);
+        }
+        if (config.pingOwners) {
+          await pingLaunchOwners(ctx, group, noteChannel, threadTs);
+        }
       }
     }
     await releaseGroup(ctx, claims);
@@ -163,13 +175,13 @@ function renderGroup(
   const platforms = notePlatforms(group);
   const replies = platforms.length > 1 ? renderChildren(group, noteOpts) : [];
   const key = noteKey(group.draftIds);
+  const repostOpts = config.repostChannel
+    ? { repostChannel: config.repostChannel, noteKey: key }
+    : {};
   const parent =
     replies.length > 0
-      ? renderParent(group, {
-          ...noteOpts,
-          ...(config.repostChannel ? { repostChannel: config.repostChannel, noteKey: key } : {}),
-        })
-      : renderFlatNote(group, noteOpts);
+      ? renderParent(group, { ...noteOpts, ...repostOpts })
+      : renderFlatNote(group, { ...noteOpts, ...repostOpts });
   return { parent, replies, platforms, key };
 }
 
@@ -208,6 +220,43 @@ async function postReplies(
         err,
       );
     }
+  }
+}
+
+/**
+ * DM the launch's owners the link to the note that just went out.
+ *
+ * Last, so a Notion database nobody configured cannot cost the channel its
+ * announcement, and a failure is logged rather than thrown for the same reason.
+ * `amplifier.pingOwners` has its own once-only marker, so a re-announced group
+ * does not DM anybody twice.
+ *
+ * A dry run never reaches here, because there is no posted note to link to.
+ *
+ * The group's first draft id is the needle. A group holding two drafts is two
+ * Typefully drafts of one launch, and the page carries one Typefully link, so a
+ * group whose page names the second draft finds no page and DMs nobody.
+ */
+async function pingLaunchOwners(
+  ctx: TaskContext,
+  group: PostGroup,
+  channel: string | undefined,
+  threadTs: string | undefined,
+): Promise<void> {
+  const draftId = group.draftIds[0];
+  if (draftId === undefined) return;
+  try {
+    await ctx.run(pingOwners, {
+      draftId,
+      ...(channel ? { noteChannel: channel } : {}),
+      ...(threadTs ? { noteTs: threadTs } : {}),
+    });
+  } catch (err) {
+    console.error(
+      `[amplifier] The owner DMs for ${group.draftIds.join(", ")} failed. The note is already ` +
+        `in the channel. Set AMPLIFIER_PING_OWNERS=false to stop trying.`,
+      err,
+    );
   }
 }
 
