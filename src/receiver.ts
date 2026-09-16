@@ -34,9 +34,7 @@ export function buildReceiver(opts: ReceiverOptions): Hono {
   const app = createDispatchServer({
     workflowSlug: opts.workflowSlug,
     dispatcher: opts.dispatcher,
-    webhooks: {
-      typefully: typefullyWebhook({ env, now }),
-    },
+    webhooks: { typefully: typefullyWebhook({ env, now }) },
   });
 
   /**

@@ -23,19 +23,9 @@ export function isResolved<T extends object>(result: T | { error: string }): res
   return !("error" in result);
 }
 
-/** The `user.id` in a `users.lookupByEmail` reply, or undefined. */
-function userId(body: SlackApiResponse): string | undefined {
-  const user = body["user"];
-  if (typeof user !== "object" || user === null) return undefined;
-  const id = (user as { id?: unknown }).id;
-  return typeof id === "string" && id !== "" ? id : undefined;
-}
-
-/** The `channel.id` in a `conversations.open` reply, or undefined. */
-function channelId(body: SlackApiResponse): string | undefined {
-  const channel = body["channel"];
-  if (typeof channel !== "object" || channel === null) return undefined;
-  const id = (channel as { id?: unknown }).id;
+/** The `id` on a nested object in a reply, such as `user` or `channel`. */
+function nestedId(body: SlackApiResponse, field: string): string | undefined {
+  const id = (body[field] as Record<string, unknown> | undefined)?.["id"];
   return typeof id === "string" && id !== "" ? id : undefined;
 }
 
@@ -59,7 +49,7 @@ export async function lookupUserImpl(
   if (!email) return { error: "no_email" };
 
   const body = await callSlack("users.lookupByEmail", { email }, { env });
-  const id = userId(body);
+  const id = nestedId(body, "user");
   if (!id) return { error: body.error ?? "no_user_in_response" };
   return { userId: id };
 }
@@ -79,7 +69,7 @@ export async function openDmImpl(
   if (!user) return { error: "no_user_id" };
 
   const body = await callSlack("conversations.open", { users: user }, { env });
-  const id = channelId(body);
+  const id = nestedId(body, "channel");
   if (!id) return { error: body.error ?? "no_channel_in_response" };
   return { channelId: id };
 }

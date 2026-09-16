@@ -1,30 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { fakeCtx } from "@render-lab/test-utils";
 import { callSlack } from "../src/slack/api.js";
 import { lookupUserImpl, openDmImpl } from "../src/slack/lookupUser.js";
+import { fakeFetch, withFetch } from "./support/slackFetch.js";
 
 const ENV = { SLACK_BOT_TOKEN: "xoxb-test" };
-
-/** A fetch answering one Web API body, recording the request it got. */
-function fakeFetch(body: unknown, ok = true, status = 200) {
-  return vi.fn(async () => ({
-    ok,
-    status,
-    text: async () => JSON.stringify(body),
-    json: async () => body,
-  }));
-}
-
-/** Replace global fetch for one call, because callSlack defaults to it. */
-async function withFetch<T>(impl: unknown, run: () => Promise<T>): Promise<T> {
-  const real = globalThis.fetch;
-  globalThis.fetch = impl as typeof fetch;
-  try {
-    return await run();
-  } finally {
-    globalThis.fetch = real;
-  }
-}
 
 describe("lookupUserImpl", () => {
   it("returns the Slack user id for an address", async () => {

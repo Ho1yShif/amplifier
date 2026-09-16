@@ -1,12 +1,7 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { readLaunch } from "../src/notion/launch.js";
 import { isLaunch, type NotionPage } from "../src/notion/types.js";
-
-/** A page response shaped from Notion's documented page object. */
-const PAGE: NotionPage = JSON.parse(
-  readFileSync(new URL("./support/notion-page.json", import.meta.url), "utf8"),
-);
+import { NOTION_PAGE as PAGE } from "./support/notionPort.js";
 
 const OPTS = { typefullyProperty: "Typefully", ownersProperty: "Owner" };
 

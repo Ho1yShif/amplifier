@@ -1,14 +1,8 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { fakeCtx } from "@render-lab/test-utils";
 import { NOTION_VERSION, notionPort } from "../src/notion/client.js";
 import { getPageImpl } from "../src/notion/getPage.js";
-import type { NotionPage } from "../src/notion/types.js";
-import { fakeNotion } from "./support/notionPort.js";
-
-const PAGE: NotionPage = JSON.parse(
-  readFileSync(new URL("./support/notion-page.json", import.meta.url), "utf8"),
-);
+import { fakeNotion, NOTION_PAGE as PAGE } from "./support/notionPort.js";
 
 /** A fetch that records the call and answers with the fixture page. */
 function fakeFetch() {

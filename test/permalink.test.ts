@@ -1,39 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { fakeCtx } from "@render-lab/test-utils";
 import { callSlack } from "../src/slack/api.js";
 import { messageLinkImpl } from "../src/slack/permalink.js";
+import { fakeFetch, withFetch } from "./support/slackFetch.js";
 
 const ENV = { SLACK_BOT_TOKEN: "xoxb-test" };
 const NOTE = { channel: "C_NOTE", messageTs: "17580000.001" };
-const URL_ = "https://renderinc.slack.com/archives/C_NOTE/p17580000001";
-
-/** A fetch answering one Web API body, recording the request it got. */
-function fakeFetch(body: unknown, ok = true, status = 200) {
-  return vi.fn(async () => ({
-    ok,
-    status,
-    text: async () => JSON.stringify(body),
-    json: async () => body,
-  }));
-}
-
-/** Replace global fetch for one call, because callSlack defaults to it. */
-async function withFetch<T>(impl: unknown, run: () => Promise<T>): Promise<T> {
-  const real = globalThis.fetch;
-  globalThis.fetch = impl as typeof fetch;
-  try {
-    return await run();
-  } finally {
-    globalThis.fetch = real;
-  }
-}
+const PERMALINK = "https://renderinc.slack.com/archives/C_NOTE/p17580000001";
 
 describe("messageLinkImpl", () => {
   it("returns the permalink to a message", async () => {
-    const result = await withFetch(fakeFetch({ ok: true, permalink: URL_ }), () =>
+    const result = await withFetch(fakeFetch({ ok: true, permalink: PERMALINK }), () =>
       messageLinkImpl(fakeCtx(), NOTE, ENV),
     );
-    expect(result).toEqual({ url: URL_ });
+    expect(result).toEqual({ url: PERMALINK });
   });
 
   it("returns message_not_found rather than throwing, so the run sends no DM", async () => {
@@ -65,7 +45,7 @@ describe("messageLinkImpl", () => {
   });
 
   it("form-encodes the call, the way callSlack sends every Web API body", async () => {
-    const fetchImpl = fakeFetch({ ok: true, permalink: URL_ });
+    const fetchImpl = fakeFetch({ ok: true, permalink: PERMALINK });
 
     await callSlack(
       "chat.getPermalink",

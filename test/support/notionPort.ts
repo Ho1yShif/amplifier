@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { vi } from "vitest";
 import type { NotionPort } from "../../src/notion/client.js";
 import type { NotionPage } from "../../src/notion/types.js";
@@ -25,3 +26,13 @@ export function fakeNotion(overrides: Partial<NotionPort> = {}): NotionPort {
 export function launchPage(id: string, url: string, property = "Typefully"): NotionPage {
   return { id, properties: { [property]: { type: "url", url } } };
 }
+
+/**
+ * A real launch page response, shaped from Notion's documented page object.
+ *
+ * Read once and shared, so a test that wants a variant spreads it rather than
+ * editing it in place.
+ */
+export const NOTION_PAGE: NotionPage = JSON.parse(
+  readFileSync(new URL("./notion-page.json", import.meta.url), "utf8"),
+);

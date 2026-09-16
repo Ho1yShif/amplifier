@@ -1,16 +1,12 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { TaskContext } from "@renderinc/sdk/workflows";
 import { pingOwnersImpl, type PingOwnersInput } from "../src/amplifier/pingOwners.js";
 import { pingedKey, pingInflightKey } from "../src/amplifier/pinged.js";
-import type { NotionPage } from "../src/notion/types.js";
 import { post } from "./support/fixtures.js";
 import { runCtx } from "./support/handlers.js";
+import { NOTION_PAGE as PAGE } from "./support/notionPort.js";
 import type { TaskCall, TaskHandlers } from "./support/taskCtx.js";
 
-const PAGE: NotionPage = JSON.parse(
-  readFileSync(new URL("./support/notion-page.json", import.meta.url), "utf8"),
-);
 const PAGE_ID = PAGE.id as string;
 const LAUNCH_DATABASE_ID = PAGE.parent?.database_id as string;
 

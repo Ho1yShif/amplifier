@@ -199,7 +199,7 @@ async function postUnreachable(
 /** Raw implementation of amplifier.pingOwners. */
 export async function pingOwnersImpl(
   ctx: TaskContext,
-  input: PingOwnersInput,
+  input: PingOwnersInput = {},
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<PingOwnersResult> {
   if (!input.pageId?.trim() && !input.url && input.draftId === undefined) {
