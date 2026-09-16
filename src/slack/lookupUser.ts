@@ -46,9 +46,9 @@ function channelId(body: SlackApiResponse): string | undefined {
  * is returned rather than thrown: the run reports that owner in the channel and
  * still DMs the others.
  *
- * `users:read.email` is the scope. Without it Slack answers
- * `missing_scope`, which reads the same way here — nobody gets a DM and the
- * channel note names why.
+ * The call needs `users:read.email`, which Slack only grants alongside
+ * `users:read`. Without it Slack answers `missing_scope`, which reads the same
+ * way here — nobody gets a DM and the channel note names why.
  */
 export async function lookupUserImpl(
   _ctx: TaskContext,
