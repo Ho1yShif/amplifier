@@ -3,7 +3,7 @@ import { announceGroups } from "../src/amplifier/announce.js";
 import { loadConfig } from "../src/config.js";
 import { noteKey, type StoredNote } from "../src/amplifier/storedNote.js";
 import { groupPosts } from "../src/amplifier/group.js";
-import { post } from "./support/fixtures.js";
+import { messageBody, post } from "./support/fixtures.js";
 import { taskCtx, type TaskCall, type TaskHandlers } from "./support/taskCtx.js";
 
 const AT = "2026-09-04T15:00:00Z";
@@ -22,6 +22,7 @@ function handlers(overrides: TaskHandlers = {}): TaskHandlers {
       channel: "C1",
       ts: `17580000.00${(ts += 1)}`,
     }),
+    "amplifier.pingOwners": ({ draftId }) => ({ draftId, dryRun: false, pinged: [] }),
     ...overrides,
   };
 }
@@ -156,15 +157,84 @@ describe("announceGroups, one link", () => {
 
     const sent = posted(calls);
     expect(sent).toHaveLength(1);
-    expect(sent[0]?.markdown).toContain("|X post>");
-    expect(sent[0]?.markdown).not.toContain("🧵");
+    expect(messageBody(sent[0])).toContain("|X post>");
+    expect(messageBody(sent[0])).not.toContain("🧵");
   });
 
-  it("stores no note, because a flat message has nothing to repost as a thread", async () => {
+  it("carries the button and stores the note, so an owner has something to click", async () => {
     const withRepost = { ...env, AMPLIFIER_REPOST_CHANNEL: "#amplify-wider" };
     const { ctx, calls } = taskCtx(handlers());
     await announceGroups(ctx, singlePost, loadConfig({}, withRepost), "run-1");
-    expect(calls.some((c) => c.name === "kv.set" && c.input.key === noteKey(["2"]))).toBe(false);
+
+    const actions = posted(calls)[0]?.blocks?.find(
+      (b: Record<string, unknown>) => b["type"] === "actions",
+    );
+    expect(actions.elements[0].value).toBe(noteKey(["2"]));
+    const stored = calls.find((c) => c.name === "kv.set" && c.input.key === noteKey(["2"]));
+    const note = JSON.parse(stored?.input.value as string) as StoredNote;
+    expect(note.replies).toEqual([]);
+  });
+});
+
+describe("announceGroups, the owner DMs", () => {
+  const withNotion = { ...env, NOTION_DATABASE_ID: "db_1", NOTION_TOKEN: "ntn_test" };
+
+  it("pings the launch's owners after the replies, with the parent's channel and ts", async () => {
+    const { ctx, calls } = taskCtx(handlers());
+    await announceGroups(ctx, crossPost, loadConfig({}, withNotion), "run-1");
+
+    const names = calls.map((c) => c.name);
+    expect(names.lastIndexOf("amplifier.postNote")).toBeLessThan(
+      names.indexOf("amplifier.pingOwners"),
+    );
+    expect(calls.find((c) => c.name === "amplifier.pingOwners")?.input).toEqual({
+      draftId: "1",
+      noteChannel: "C1",
+      noteTs: "17580000.001",
+    });
+  });
+
+  it("leaves the announcement delivered when the ping fails", async () => {
+    const { ctx, calls } = taskCtx(
+      handlers({
+        "amplifier.pingOwners": () => {
+          throw new Error("notion down");
+        },
+      }),
+    );
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { notes } = await announceGroups(ctx, crossPost, loadConfig({}, withNotion), "run-1");
+
+      expect(notes[0]?.delivered).toBe(true);
+      expect(calls.some((c) => c.name === "kv.set" && c.input.key === "amplifier:seen:1")).toBe(
+        true,
+      );
+      expect(error.mock.calls[0]?.[0]).toMatch(/The owner DMs for 1 failed/);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("pings nobody when AMPLIFIER_PING_OWNERS is false", async () => {
+    const { ctx, calls } = taskCtx(handlers());
+    const off = { ...withNotion, AMPLIFIER_PING_OWNERS: "false" };
+    await announceGroups(ctx, crossPost, loadConfig({}, off), "run-1");
+
+    expect(calls.some((c) => c.name === "amplifier.pingOwners")).toBe(false);
+  });
+
+  it("pings nobody when the note was not delivered", async () => {
+    const { ctx, calls } = taskCtx(
+      handlers({ "amplifier.postNote": () => ({ delivered: false }) }),
+    );
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await announceGroups(ctx, crossPost, loadConfig({}, withNotion), "run-1");
+      expect(calls.some((c) => c.name === "amplifier.pingOwners")).toBe(false);
+    } finally {
+      error.mockRestore();
+    }
   });
 });
 
@@ -180,6 +250,18 @@ describe("announceGroups, dry run", () => {
       expect(lines[1]).toContain("|LinkedIn post>");
       expect(lines[2]).toContain("|X post>");
       expect(posted(calls)).toHaveLength(0);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("pings nobody, because there is no thread to link to", async () => {
+    const { ctx, calls } = taskCtx(handlers());
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const withNotion = { ...env, NOTION_DATABASE_ID: "db_1", NOTION_TOKEN: "ntn_test" };
+      await announceGroups(ctx, crossPost, loadConfig({ dryRun: true }, withNotion), "run-1");
+      expect(calls.some((c) => c.name === "amplifier.pingOwners")).toBe(false);
     } finally {
       log.mockRestore();
     }

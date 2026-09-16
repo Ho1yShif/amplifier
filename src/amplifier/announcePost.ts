@@ -3,13 +3,13 @@ import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import { deleteKeys, get as kvGet } from "@render-lab/tasks-render-kv";
 import { loadConfig, MAX_LIMIT } from "../config.js";
 import { listPublished } from "../typefully/listPublished.js";
-import type { PublishedPost } from "../typefully/types.js";
+import { matchPost, noMatchMessage } from "../typefully/match.js";
 import { announceGroups, type NoteResult } from "./announce.js";
 import { groupPosts } from "./group.js";
 import { seenKey } from "./seen.js";
 
 export interface AnnouncePostInput {
-  /** Permalink to the live post, X or LinkedIn. Either this or draftId. */
+  /** Permalink to the live post, or its Typefully share URL. Either this or draftId. */
   url?: string;
   /** Typefully draft id, when the URL is not to hand. */
   draftId?: string;
@@ -26,14 +26,6 @@ export interface AnnouncePostResult {
   note?: NoteResult;
   /** Set when nothing was posted, naming why. */
   skipped?: "announced" | "claimed";
-}
-
-/** The draft matching the input, by draft id when given and otherwise by permalink. */
-function findPost(posts: PublishedPost[], input: AnnouncePostInput): PublishedPost | undefined {
-  if (input.draftId !== undefined) {
-    return posts.find((p) => p.draftId === input.draftId);
-  }
-  return posts.find((p) => p.links.some((l) => l.url === input.url));
 }
 
 /** Raw implementation of amplifier.announcePost. */
@@ -60,14 +52,9 @@ export async function announcePostImpl(
     limit: MAX_LIMIT,
   });
 
-  const post = findPost(posts, input);
+  const post = matchPost(posts, input);
   if (!post) {
-    const target = input.draftId !== undefined ? `draft ${input.draftId}` : `${input.url}`;
-    throw new Error(
-      `No published draft matches ${target} among the newest ${posts.length} Typefully ` +
-        `returned. The post may be older than those, or its permalink may not be on X or ` +
-        `LinkedIn.`,
-    );
+    throw new Error(noMatchMessage(posts, input));
   }
 
   const key = seenKey(post.draftId);
@@ -94,11 +81,15 @@ export async function announcePostImpl(
     // Another run holds the claim and is posting the same note right now.
     return { draftId: post.draftId, dryRun: config.dryRun, skipped: "claimed" };
   }
+
   return { draftId: post.draftId, dryRun: config.dryRun, note };
 }
 
 /**
  * Announce one published post to Slack, given its permalink.
+ *
+ * `announceGroups` DMs the launch's owners afterwards, so there is no flag for
+ * it here. Set AMPLIFIER_PING_OWNERS to false to turn the DMs off.
  *
  * No retry policy, matching `amplifier.checkPosts`. A human is watching this
  * one, and a retry after a delivered note would read its own marker and do

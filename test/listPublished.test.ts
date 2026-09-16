@@ -2,8 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fakeCtx } from "@render-lab/test-utils";
 import { DEFAULT_LIMIT } from "../src/config.js";
 import { listPublishedImpl } from "../src/typefully/listPublished.js";
-import { typefullyPort } from "../src/typefully/client.js";
-import type { TypefullyDeps } from "../src/typefully/client.js";
+import { typefullyPort, type TypefullyDeps } from "../src/typefully/client.js";
 import type { TypefullyDraft } from "../src/typefully/types.js";
 
 const draft: TypefullyDraft = {

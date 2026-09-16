@@ -1,6 +1,12 @@
 import { createDispatchServer, type WorkflowDispatcher } from "@render-lab/triggers";
 import type { Hono } from "hono";
-import { CALLBACK_PATH, isVerified, publicBaseUrl, verifyState } from "./slack/oauth.js";
+import {
+  CALLBACK_PATH,
+  isVerified,
+  publicBaseUrl,
+  verifyState,
+  type StateFailure,
+} from "./slack/oauth.js";
 import { parseRepostClick, verifySlackSignature } from "./slack/interactivity.js";
 import { typefullyWebhook } from "./typefully/webhook.js";
 
@@ -120,7 +126,7 @@ export function buildReceiver(opts: ReceiverOptions): Hono {
 }
 
 /** Why a `state` was rejected, in words a person can act on. */
-function stateMessage(failure: "malformed" | "bad-signature" | "expired"): string {
+function stateMessage(failure: StateFailure): string {
   if (failure === "expired") return "The authorize link has expired. Click Repost again.";
   return "This authorize link was not issued by amplifier.";
 }

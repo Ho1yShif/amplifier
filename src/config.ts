@@ -1,3 +1,4 @@
+import { DEFAULT_PING_ASK } from "./amplifier/pingTemplate.js";
 import { MAX_SETTLE_MINUTES } from "./amplifier/retry.js";
 import { DEFAULT_CALL_TO_ACTION } from "./amplifier/template.js";
 import { DEFAULT_SUMMARY_MODEL } from "./summary/model.js";
@@ -43,7 +44,28 @@ export interface AmplifierConfig {
   /** Slack app credentials for the user-token exchange. Absent means nobody can authorize. */
   slackClientId?: string;
   slackClientSecret?: string;
+  /** Display name of the Notion property holding a launch's Typefully link. */
+  notionTypefullyProperty: string;
+  /** Display name of the Notion property naming a launch's owners. */
+  notionOwnersProperty: string;
+  /** Launch database id. Absent means a page from any database can ping. */
+  notionDatabaseId?: string;
+  /** The ask in an owner's DM. */
+  pingAsk: string;
+  /** Whether an announcement also DMs the launch's owners. */
+  pingOwners: boolean;
 }
+
+/**
+ * Names of the two properties `amplifier.pingOwners` reads, used when nothing
+ * overrides them.
+ *
+ * Notion keys a page's properties by display name, so these are settings and
+ * not constants. `readLaunch` also matches a property whose name contains the
+ * configured one, so `Typefully` finds a column named `Typefully URL`.
+ */
+export const DEFAULT_TYPEFULLY_PROPERTY = "Typefully";
+export const DEFAULT_OWNERS_PROPERTY = "Owner";
 
 /**
  * Reaction added to a note that has been reposted.
@@ -92,6 +114,7 @@ export function loadConfig(
   const repostChannel = channelName(input.repostChannel ?? env.AMPLIFIER_REPOST_CHANNEL);
   const slackClientId = optional(env.SLACK_CLIENT_ID);
   const slackClientSecret = optional(env.SLACK_CLIENT_SECRET);
+  const notionDatabaseId = optional(env.NOTION_DATABASE_ID);
   const seenTtlDays = whole(
     "AMPLIFIER_SEEN_TTL_DAYS",
     input.seenTtlDays,
@@ -142,7 +165,41 @@ export function loadConfig(
     repostEmoji: text(undefined, env.AMPLIFIER_REPOST_EMOJI, DEFAULT_REPOST_EMOJI),
     ...(slackClientId ? { slackClientId } : {}),
     ...(slackClientSecret ? { slackClientSecret } : {}),
+    notionTypefullyProperty: text(
+      undefined,
+      env.NOTION_TYPEFULLY_PROPERTY,
+      DEFAULT_TYPEFULLY_PROPERTY,
+    ),
+    notionOwnersProperty: text(undefined, env.NOTION_OWNERS_PROPERTY, DEFAULT_OWNERS_PROPERTY),
+    ...(notionDatabaseId ? { notionDatabaseId } : {}),
+    pingAsk: text(undefined, env.AMPLIFIER_PING_ASK, DEFAULT_PING_ASK),
+    // On by default once Notion is configured, because an announcement whose
+    // owners hear nothing is the thing this exists to fix. Both variables are
+    // needed: the token reads the page and the database id finds it from the
+    // draft.
+    pingOwners: flag(
+      "AMPLIFIER_PING_OWNERS",
+      env.AMPLIFIER_PING_OWNERS,
+      notionDatabaseId !== undefined && optional(env.NOTION_TOKEN) !== undefined,
+    ),
   };
+}
+
+/**
+ * Resolve one on/off setting from the environment, then the default.
+ *
+ * Unset or blank means the default, matching `whole` and `text`. Any value but
+ * "true" or "false" throws, rather than reading as off: a variable set to "0"
+ * or "no" was meant to turn the setting off, and silently doing the opposite
+ * gives nobody an error to read.
+ */
+function flag(name: string, envValue: string | undefined, fallback: boolean): boolean {
+  const value = envValue?.trim();
+  if (value === undefined || value === "") return fallback;
+  if (value !== "true" && value !== "false") {
+    throw new Error(`${name} must be "true" or "false"; got ${JSON.stringify(envValue)}.`);
+  }
+  return value === "true";
 }
 
 /**

@@ -4,7 +4,7 @@ import { checkPostsImpl } from "../src/amplifier/checkPosts.js";
 import { StillPublishingError } from "../src/amplifier/settle.js";
 import type { CheckPostsInput } from "../src/config.js";
 import type { PublishedPost } from "../src/typefully/types.js";
-import { post } from "./support/fixtures.js";
+import { messageBody, post } from "./support/fixtures.js";
 import { runCtx, SUMMARY_LINE } from "./support/handlers.js";
 import { kvStore, type KvStore } from "./support/kvStore.js";
 import type { TaskHandlers } from "./support/taskCtx.js";
@@ -300,8 +300,8 @@ describe("checkPostsImpl", () => {
 
       await check(ctx, { ...PENDING, now: "2026-09-04T16:06:00Z" });
 
-      const md = calls.find((c) => c.name === "amplifier.postNote")?.input.markdown ?? "";
-      expect(md).toContain("X had not published yet");
+      const note = calls.find((c) => c.name === "amplifier.postNote")?.input;
+      expect(messageBody(note)).toContain("X had not published yet");
     });
 
     it("posts a complete draft on the first attempt", async () => {
@@ -356,15 +356,15 @@ describe("checkPostsImpl", () => {
 });
 
 /**
- * Handlers for a run against a shared Key Value, recording the note markdown of
- * every Slack post the run made.
+ * Handlers for a run against a shared Key Value, recording the body of every
+ * Slack post the run made.
  */
 function sharedKvHandlers(kv: KvStore, posts: PublishedPost[], slackLog: string[]): TaskHandlers {
   return {
     ...kv.handlers,
     "typefully.listPublished": () => ({ posts }),
     "amplifier.postNote": (input) => {
-      slackLog.push(String(input.markdown));
+      slackLog.push(messageBody(input));
       return { delivered: true };
     },
   };
@@ -536,9 +536,9 @@ describe("the note's summary", () => {
 
     const result = await check(ctx, BASE);
 
-    const md = calls.find((c) => c.name === "amplifier.postNote")?.input.markdown ?? "";
-    expect(md).toContain("_(Summarization LLM call failed: 401 invalid x-api-key)_");
-    expect(md).toContain("> preview 1");
+    const note = calls.find((c) => c.name === "amplifier.postNote")?.input;
+    expect(messageBody(note)).toContain("_(Summarization LLM call failed: 401 invalid x-api-key)_");
+    expect(messageBody(note)).toContain("> preview 1");
     expect(result.notified).toBe(1);
     expect(result.notes[0]?.summarized).toBe(false);
   });
