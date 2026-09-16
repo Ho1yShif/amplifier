@@ -202,7 +202,7 @@ one workspace, so a Workflow service in any other region cannot reach the Key Va
 the service out of a network-isolated environment as well, because a Workflow service in one cannot
 reach anything over that environment's private network.
 
-The Workflow service reads its variables from the `amplifier-workflow` env group, linked in step 7,
+The Workflow service reads its variables from the `amplifier-workflow` env group, linked in step 8,
 so `render workflows create` needs no `--env-var` or `--env-file` flags.
 
 ### Registering the Typefully webhook
@@ -241,25 +241,23 @@ database's workspace is not yours to configure.
 #### OAuth integration
 
 Notion calls this a public integration. The authorization hands back an access token that works
-wherever an internal secret works, so the extra work is the one-time exchange in steps 6 to 8.
+wherever an internal secret works, so the extra work is the one-time exchange in steps 5 to 7.
 Amplifier has no Notion callback route, so you do that exchange by hand with `curl`.
 
-1. Open <https://notion.so/profile/integrations> and click **New integration**. Name it and pick a
-   workspace you own. Your own free workspace is fine, because the launch database does not have to
-   be in it. Set the type to **Public**. If the form offers no type, create the integration and then
-   turn on **Make integration public** on its **Distribution** tab.
-2. On the **Configuration** tab, under **Capabilities**, check **Read content** and set user
+1. Open <https://notion.so/profile/integrations> and click **New connection**. Name it and set the
+   **Redirect URI**. Amplifier has no route to receive the code, so point it at a path on the
+   receiver that answers 404, such as `<receiver>/notion/oauth/callback`. A 404 still leaves the
+   code in the browser's address bar, which is all step 6 needs. Notion requires https here, so the
+   deployed receiver is the easiest host to name. Click **Create Connection**.
+2. On the **Configuration** tab, under **Capabilities**, check **Read content** in the **Content
+   capabilities** section and uncheck **Update content** and **Insert content**. Set user
    capabilities to **Read user information, including email addresses**. Without the email
-   capability the owner property carries no email, and nobody can be DMed. Save.
+   capability the owner property carries no email, and nobody can be DMed.
 3. Fill in the company name, website, privacy policy URL, terms of use URL and support email that
    Notion asks for. It withholds the OAuth credentials until all of them are set.
-4. Add one **Redirect URI**. Amplifier has no route to receive the code, so point it at a path on
-   the receiver that answers 404, such as `<receiver>/notion/oauth/callback`. A 404 still leaves the
-   code in the browser's address bar, which is all step 7 needs. Notion requires https here, so the
-   deployed receiver is the easiest host to name.
-5. Copy the **OAuth client ID** and **OAuth client secret**. The secret is a password; it authorizes
-   the exchange in step 8.
-6. Open the authorize URL in a browser, with the redirect URI percent-encoded:
+4. Copy the **OAuth client ID** and **OAuth client secret**. The secret is a password; it authorizes
+   the exchange in step 7.
+5. Open the authorize URL in a browser, with the redirect URI percent-encoded:
 
    ```
    https://api.notion.com/v1/oauth/authorize?client_id=<client id>&response_type=code&owner=user&redirect_uri=<redirect uri>
@@ -270,9 +268,9 @@ Amplifier has no Notion callback route, so you do that exchange by hand with `cu
    The integration sees the pages you select here and nothing else, and you can only select pages
    you can see yourself.
 
-7. The browser lands on the redirect URI with `?code=...` on the end. Copy that code. It is
+6. The browser lands on the redirect URI with `?code=...` on the end. Copy that code. It is
    single-use and expires within minutes, so run the next step straight away.
-8. Exchange the code for a token:
+7. Exchange the code for a token:
 
    ```bash
    curl -X POST https://api.notion.com/v1/oauth/token \
@@ -284,14 +282,14 @@ Amplifier has no Notion callback route, so you do that exchange by hand with `cu
    The `access_token` in the reply is `NOTION_TOKEN`. Treat it as a password, the same as an
    internal secret. The reply also names the workspace and the bot user the grant created. If it
    carries a `refresh_token` or an expiry, the token is not permanent, and amplifier has no refresh
-   path, so renewing it means running steps 6 to 8 again.
+   path, so renewing it means running steps 5 to 7 again.
 
-Re-run steps 6 to 8 to add a page the grant does not cover, or add it from the database's **···** >
+Re-run steps 5 to 7 to add a page the grant does not cover, or add it from the database's **···** >
 **Connections** menu, which works for either kind of integration.
 
 #### Database id, webhook and secret
 
-Keep this order. The handshake in step 4 only works while `NOTION_WEBHOOK_SECRET` is unset, which is
+Keep this order. The handshake in step 5 only works while `NOTION_WEBHOOK_SECRET` is unset, which is
 exactly when you need it.
 
 1. Copy the launch database's id. Open the database as a full page and take the 32 hex characters
@@ -305,14 +303,28 @@ exactly when you need it.
    `NOTION_DATABASE_ID` if you are not using the id from `render.yaml`, and redeploy the Workflow
    service. It reads the token on each call, but the redeploy is what puts the new variables on the
    running service.
-3. On the integration's **Webhooks** tab, create a subscription pointing at the receiver's
+3. Dry-run the ping against one real launch page, before any subscription exists to deliver a
+   property edit. Take the page id from the page's URL and run:
+
+   ```bash
+   render workflows start <slug>/amplifier.pingOwners \
+     --input='[{"pageId":"<page id>","dryRun":true}]'
+   ```
+
+   The Workflow logs show one `[dry run] would DM` line per owner amplifier could reach, and a
+   `[dry run] would post:` line naming the owners it could not. An owner listed there whose Notion
+   page does have an email means the integration is missing the email capability, or that person
+   has no Slack account under that address. A dry run sends nothing, so it writes no pinged marker
+   and the page still pings for real later.
+
+4. On the integration's **Webhooks** tab, create a subscription pointing at the receiver's
    `onrender.com` URL with `/webhooks/notion` appended, and subscribe to
    `page.properties_updated`. A public integration delivers events from every workspace that
    authorized it, so read [Security](#security) before you let anyone else authorize this one.
-4. Notion posts a one-time unsigned handshake to that URL and waits. Open the `amplifier-webhook`
+5. Notion posts a one-time unsigned handshake to that URL and waits. Open the `amplifier-webhook`
    logs, copy the token from the `Notion subscription handshake` line, and paste it into the Notion
    UI to verify the subscription.
-5. Add that same token to the `amplifier-triggers` env group as `NOTION_WEBHOOK_SECRET`, and
+6. Add that same token to the `amplifier-triggers` env group as `NOTION_WEBHOOK_SECRET`, and
    redeploy `amplifier-webhook`. Until then it rejects every delivery.
 
 ### Manual trigger
@@ -408,9 +420,10 @@ Pick the Slack channel the notes will go to. If the production channel is busy, 
 `slack-app-manifest.yaml` defines the app. At <https://api.slack.com/apps>, choose
 **Create New App > From a manifest > Continue**, pick the workspace, and paste the file as YAML. Click **Next > Create and Install**.
 
-The manifest requests `chat:write`, `reactions:write`, `users:read.email` and `im:write` for the
-bot, and `chat:write` for a user. The last two are what let `amplifier.pingOwners` find an owner
-from their email and DM them; drop them if you only want the announce path. To change the app later, edit the file and paste it into **App Manifest** on the
+The manifest requests `chat:write`, `reactions:write`, `users:read`, `users:read.email` and
+`im:write` for the bot, and `chat:write` for a user. `users:read.email` and `im:write` let
+`amplifier.pingOwners` find an owner from their email and DM them, and Slack only grants
+`users:read.email` alongside `users:read`. Drop all three if you only want the announce path. To change the app later, edit the file and paste it into **App Manifest** on the
 app's settings page. A scope change requires a reinstall. Check the Bot User OAuth Token
 afterwards and update `SLACK_BOT_TOKEN` if it changed.
 
@@ -459,10 +472,11 @@ host.
    this against the redirect on the authorize link character for character, so use https
    and no trailing slash.
 3. On the same page, check both scope lists against the manifest. **Bot Token Scopes** needs
-   `chat:write`, `reactions:write`, `users:read.email` and `im:write`. **User Token Scopes**
-   needs `chat:write`, because a repost posts as the person who clicked. Click **Add an OAuth
-   Scope** for any that is missing. An app installed before `reactions:write`,
-   `users:read.email` or `im:write` was added does not have them, and without the last two
+   `chat:write`, `reactions:write`, `users:read`, `users:read.email` and `im:write`. **User
+   Token Scopes** needs `chat:write`, because a repost posts as the person who clicked. Click
+   **Add an OAuth Scope** for any that is missing. Slack adds `users:read` for you when you
+   pick `users:read.email`, and refuses the email scope without it. An app installed before
+   these scopes were added does not have them, and without `users:read.email` or `im:write`
    `amplifier.pingOwners` reaches nobody.
 4. If either scope list changed, click **Reinstall to <WORKSPACE-NAME>** at the top of the
    page. The new scope takes effect on the existing installation. Compare the **Bot User
