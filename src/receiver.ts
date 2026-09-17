@@ -1,5 +1,6 @@
 import { createDispatchServer, type WorkflowDispatcher } from "@render-lab/triggers";
 import type { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import {
   CALLBACK_PATH,
   isVerified,
@@ -19,6 +20,9 @@ export interface ReceiverOptions {
 
 /** How long the OAuth callback waits for the token exchange before giving up. */
 const EXCHANGE_TIMEOUT_MS = 20_000;
+
+/** Same cap the vendor's own routes use, so every route on this service agrees. */
+const MAX_BODY_BYTES = 1_048_576;
 
 /**
  * The receiver's HTTP app: the dispatch server plus the two Slack routes.
@@ -44,33 +48,40 @@ export function buildReceiver(opts: ReceiverOptions): Hono {
    * three seconds and starting a workflow run is slower than that. Everything
    * the clicker needs to hear afterwards arrives through `response_url`.
    */
-  app.post("/slack/interactivity", async (c) => {
-    const rawBody = await c.req.text();
-    const headers: Record<string, string> = {};
-    c.req.raw.headers.forEach((value, key) => {
-      headers[key.toLowerCase()] = value;
-    });
-    if (!verifySlackSignature(headers, rawBody, env.SLACK_SIGNING_SECRET, now().getTime())) {
-      return c.json({ error: "invalid signature" }, 401);
-    }
+  app.post(
+    "/slack/interactivity",
+    bodyLimit({
+      maxSize: MAX_BODY_BYTES,
+      onError: (c) => c.json({ error: "payload too large" }, 413),
+    }),
+    async (c) => {
+      const rawBody = await c.req.text();
+      const headers: Record<string, string> = {};
+      c.req.raw.headers.forEach((value, key) => {
+        headers[key.toLowerCase()] = value;
+      });
+      if (!verifySlackSignature(headers, rawBody, env.SLACK_SIGNING_SECRET, now().getTime())) {
+        return c.json({ error: "invalid signature" }, 401);
+      }
 
-    const payloadField = new URLSearchParams(rawBody).get("payload");
-    if (payloadField === null) return c.json({ error: "no payload" }, 400);
-    let payload: unknown;
-    try {
-      payload = JSON.parse(payloadField);
-    } catch {
-      return c.json({ error: "invalid payload JSON" }, 400);
-    }
+      const payloadField = new URLSearchParams(rawBody).get("payload");
+      if (payloadField === null) return c.json({ error: "no payload" }, 400);
+      let payload: unknown;
+      try {
+        payload = JSON.parse(payloadField);
+      } catch {
+        return c.json({ error: "invalid payload JSON" }, 400);
+      }
 
-    const click = parseRepostClick(payload);
-    if (!click) return c.body(null, 200);
+      const click = parseRepostClick(payload);
+      if (!click) return c.body(null, 200);
 
-    void opts.dispatcher.start("amplifier.repost", [click]).catch((err: unknown) => {
-      console.error("[amplifier] Could not start amplifier.repost for a Repost click.", err);
-    });
-    return c.body(null, 200);
-  });
+      void opts.dispatcher.start("amplifier.repost", [click]).catch((err: unknown) => {
+        console.error("[amplifier] Could not start amplifier.repost for a Repost click.", err);
+      });
+      return c.body(null, 200);
+    },
+  );
 
   /**
    * Finish one person's authorization.
