@@ -1,5 +1,6 @@
 import { createDispatchServer, type WorkflowDispatcher } from "@render-lab/triggers";
 import type { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import {
   CALLBACK_PATH,
   isVerified,
@@ -21,6 +22,20 @@ export interface ReceiverOptions {
 const EXCHANGE_TIMEOUT_MS = 20_000;
 
 /**
+ * Cap for the routes `createDispatchServer` registers, passed to it explicitly
+ * so this service does not inherit whatever the vendor's default becomes.
+ */
+const MAX_DISPATCH_BODY_BYTES = 1_048_576;
+
+/**
+ * Cap for Slack interactivity, tighter because the payload is a known shape. A
+ * real Repost click measures about 2 KB form-encoded, note blocks included, so
+ * this leaves room for a much longer note and still bounds what one unsigned
+ * request holds in memory.
+ */
+const MAX_INTERACTIVITY_BYTES = 65_536;
+
+/**
  * The receiver's HTTP app: the dispatch server plus the two Slack routes.
  *
  * `createDispatchServer` rather than `serveDispatchServer`, because the Slack
@@ -35,6 +50,7 @@ export function buildReceiver(opts: ReceiverOptions): Hono {
     workflowSlug: opts.workflowSlug,
     dispatcher: opts.dispatcher,
     webhooks: { typefully: typefullyWebhook({ env, now }) },
+    maxBodyBytes: MAX_DISPATCH_BODY_BYTES,
   });
 
   /**
@@ -44,33 +60,40 @@ export function buildReceiver(opts: ReceiverOptions): Hono {
    * three seconds and starting a workflow run is slower than that. Everything
    * the clicker needs to hear afterwards arrives through `response_url`.
    */
-  app.post("/slack/interactivity", async (c) => {
-    const rawBody = await c.req.text();
-    const headers: Record<string, string> = {};
-    c.req.raw.headers.forEach((value, key) => {
-      headers[key.toLowerCase()] = value;
-    });
-    if (!verifySlackSignature(headers, rawBody, env.SLACK_SIGNING_SECRET, now().getTime())) {
-      return c.json({ error: "invalid signature" }, 401);
-    }
+  app.post(
+    "/slack/interactivity",
+    bodyLimit({
+      maxSize: MAX_INTERACTIVITY_BYTES,
+      onError: (c) => c.json({ error: "payload too large" }, 413),
+    }),
+    async (c) => {
+      const rawBody = await c.req.text();
+      const headers: Record<string, string> = {};
+      c.req.raw.headers.forEach((value, key) => {
+        headers[key.toLowerCase()] = value;
+      });
+      if (!verifySlackSignature(headers, rawBody, env.SLACK_SIGNING_SECRET, now().getTime())) {
+        return c.json({ error: "invalid signature" }, 401);
+      }
 
-    const payloadField = new URLSearchParams(rawBody).get("payload");
-    if (payloadField === null) return c.json({ error: "no payload" }, 400);
-    let payload: unknown;
-    try {
-      payload = JSON.parse(payloadField);
-    } catch {
-      return c.json({ error: "invalid payload JSON" }, 400);
-    }
+      const payloadField = new URLSearchParams(rawBody).get("payload");
+      if (payloadField === null) return c.json({ error: "no payload" }, 400);
+      let payload: unknown;
+      try {
+        payload = JSON.parse(payloadField);
+      } catch {
+        return c.json({ error: "invalid payload JSON" }, 400);
+      }
 
-    const click = parseRepostClick(payload);
-    if (!click) return c.body(null, 200);
+      const click = parseRepostClick(payload);
+      if (!click) return c.body(null, 200);
 
-    void opts.dispatcher.start("amplifier.repost", [click]).catch((err: unknown) => {
-      console.error("[amplifier] Could not start amplifier.repost for a Repost click.", err);
-    });
-    return c.body(null, 200);
-  });
+      void opts.dispatcher.start("amplifier.repost", [click]).catch((err: unknown) => {
+        console.error("[amplifier] Could not start amplifier.repost for a Repost click.", err);
+      });
+      return c.body(null, 200);
+    },
+  );
 
   /**
    * Finish one person's authorization.
