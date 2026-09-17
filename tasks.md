@@ -118,6 +118,12 @@ Two places stay sequential deliberately. `claimGroup` takes the locks one at a t
 what it already holds and give up on the first refusal. `postReplies` posts the thread's replies in
 order, because the order the links appear is part of the note's format.
 
+`claimNote` in `src/amplifier/repostClaim.ts` locks the note before it reads the reposted marker, for
+the same reason `claimGroup` re-reads the announced marker after each lock: the other click writes its
+marker in the window a marker-first read opens. `amplifier.repost` also reads that marker once without
+the lock, before it reads the clicker's token, so a click on an already-reposted note is not answered
+with an authorize link.
+
 ## Where amplifier reaches past a packaged task
 
 `amplifier.postNote` wraps `postMessageImpl` under its own name because the packaged behavior is wrong
