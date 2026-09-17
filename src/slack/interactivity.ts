@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { isFresh, timingSafeEquals } from "../http/signature.js";
+import { nonEmptyString } from "../json.js";
 import { REPOST_ACTION_ID } from "../amplifier/template.js";
 
 /** Headers Slack signs an interactivity delivery with, lowercased. */
@@ -51,10 +52,6 @@ export interface RepostClick {
   responseUrl: string;
 }
 
-function str(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
-
 /**
  * Read a Repost click out of an interactivity payload, or null.
  *
@@ -68,11 +65,11 @@ export function parseRepostClick(payload: unknown): RepostClick | null {
   const action = actions[0] as Record<string, unknown> | undefined;
   if (!action || action["action_id"] !== REPOST_ACTION_ID) return null;
 
-  const channel = str((p["channel"] as Record<string, unknown> | undefined)?.["id"]);
-  const messageTs = str((p["message"] as Record<string, unknown> | undefined)?.["ts"]);
-  const userId = str((p["user"] as Record<string, unknown> | undefined)?.["id"]);
-  const noteKey = str(action["value"]);
-  const responseUrl = str(p["response_url"]);
+  const channel = nonEmptyString((p["channel"] as Record<string, unknown> | undefined)?.["id"]);
+  const messageTs = nonEmptyString((p["message"] as Record<string, unknown> | undefined)?.["ts"]);
+  const userId = nonEmptyString((p["user"] as Record<string, unknown> | undefined)?.["id"]);
+  const noteKey = nonEmptyString(action["value"]);
+  const responseUrl = nonEmptyString(p["response_url"]);
   if (!channel || !messageTs || !userId || !noteKey || !responseUrl) {
     console.error("[amplifier] A Repost click was missing fields the repost task needs.");
     return null;

@@ -1,5 +1,6 @@
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import { SLACK_RETRY } from "@render-lab/tasks-slack";
+import { nonEmptyString } from "../json.js";
 import { callSlack, type SlackApiResponse } from "./api.js";
 
 export interface MessageLinkInput {
@@ -14,8 +15,7 @@ export type MessageLinkResult = { url: string } | { error: string };
 
 /** The `permalink` in a `chat.getPermalink` reply, or undefined. */
 function permalink(body: SlackApiResponse): string | undefined {
-  const url = body["permalink"];
-  return typeof url === "string" && url !== "" ? url : undefined;
+  return nonEmptyString(body["permalink"]);
 }
 
 /**

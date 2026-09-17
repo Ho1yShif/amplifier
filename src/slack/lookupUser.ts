@@ -1,5 +1,6 @@
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import { SLACK_RETRY } from "@render-lab/tasks-slack";
+import { nonEmptyString } from "../json.js";
 import { callSlack, type SlackApiResponse } from "./api.js";
 
 export interface LookupUserInput {
@@ -25,8 +26,7 @@ export function isResolved<T extends object>(result: T | { error: string }): res
 
 /** The `id` on a nested object in a reply, such as `user` or `channel`. */
 function nestedId(body: SlackApiResponse, field: string): string | undefined {
-  const id = (body[field] as Record<string, unknown> | undefined)?.["id"];
-  return typeof id === "string" && id !== "" ? id : undefined;
+  return nonEmptyString((body[field] as Record<string, unknown> | undefined)?.["id"]);
 }
 
 /**

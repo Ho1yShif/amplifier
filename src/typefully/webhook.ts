@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import type { WebhookAdapter, WebhookContext, WebhookRequest } from "@render-lab/triggers";
 import { isFresh, timingSafeEquals } from "../http/signature.js";
+import { nonEmptyString } from "../json.js";
 
 /** The one event that can produce a note. */
 const PUBLISHED_EVENT = "draft.published";
@@ -34,7 +35,7 @@ function draftId(body: unknown): string | undefined {
   if (typeof data !== "object" || data === null) return undefined;
   const id = (data as { id?: unknown }).id;
   if (typeof id === "number" && Number.isFinite(id)) return String(id);
-  return typeof id === "string" && id !== "" ? id : undefined;
+  return nonEmptyString(id);
 }
 
 /**

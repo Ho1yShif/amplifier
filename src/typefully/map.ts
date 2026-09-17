@@ -1,3 +1,4 @@
+import { nonEmptyString } from "../json.js";
 import { compareTime } from "../time.js";
 import type { Platform, PlatformLink, PublishedPost, TypefullyDraft } from "./types.js";
 
@@ -13,11 +14,6 @@ const PLATFORM_FIELDS: Record<
   },
   x: { at: "x_post_published_at", url: "x_published_url", enabled: "x_post_enabled" },
 };
-
-/** A raw field's value when it is a non-empty string, else undefined. */
-function str(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
 
 /**
  * Map a raw Typefully draft to a PublishedPost, or null when it is not an
@@ -45,11 +41,11 @@ export function mapDraft(raw: TypefullyDraft): PublishedPost | null {
   const pending: Platform[] = [];
   for (const platform of Object.keys(PLATFORM_FIELDS) as Platform[]) {
     const fields = PLATFORM_FIELDS[platform];
-    const platformAt = str(raw[fields.at]);
-    const url = str(raw[fields.url]);
+    const platformAt = nonEmptyString(raw[fields.at]);
+    const url = nonEmptyString(raw[fields.url]);
     if (raw[fields.enabled] === true && url === undefined) pending.push(platform);
     if (platformAt === undefined && url === undefined) continue;
-    const publishedAt = platformAt ?? str(raw.published_at);
+    const publishedAt = platformAt ?? nonEmptyString(raw.published_at);
     if (publishedAt === undefined) continue;
     links.push({
       platform,
