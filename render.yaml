@@ -5,14 +5,14 @@
 # Blueprints don't support Workflows yet.
 #
 # Order: create the Slack app, create the Workflow service, create the two env
-# groups by hand with their values, apply this Blueprint, link amplifier-workflow
-# to the Workflow service, add the amplifier-kv internal connection string to that
-# group as REDIS_URL, register the receiver's public URL in Typefully under
-# Settings > API and copy the signing secret back into TYPEFULLY_WEBHOOK_SECRET,
-# then point the Slack app at the receiver: its Interactivity Request URL at
-# /slack/interactivity and its OAuth Redirect URL at /slack/oauth/callback.
-# The Notion integration comes last, and needs no receiver route. README,
-# Pinging a launch's owners, has the order.
+# groups by hand with their values, apply this Blueprint, point the Slack app at
+# the receiver (its Interactivity Request URL at /slack/interactivity and its
+# OAuth Redirect URL at /slack/oauth/callback), link amplifier-workflow to the
+# Workflow service, add the amplifier-kv internal connection string to that group
+# as REDIS_URL, then register the receiver's public URL in Typefully under
+# Settings > API and copy the signing secret back into TYPEFULLY_WEBHOOK_SECRET.
+# The Notion integration comes last, and needs no receiver route. The README's
+# Deployment section has the numbered steps.
 projects:
   - name: amplifier
     environments:

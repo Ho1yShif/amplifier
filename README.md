@@ -117,6 +117,19 @@ This runs every task in one process with no retries and no timeouts, so it check
 
 The stub listens on port 8787. Set `STUB_PORT` to use a different one.
 
+### Webhook receiver on localhost
+
+`pnpm webhook:post` signs the captured Typefully event in `test/support/typefully-event.json` and posts it to a receiver running on this machine, which checks the signature and the mapping without a deploy:
+
+```bash
+pnpm build
+PORT=3000 WORKFLOW_SLUG=<slug> RENDER_API_KEY=<key> \
+  TYPEFULLY_WEBHOOK_SECRET=whsec_local pnpm trigger:serve &
+TYPEFULLY_WEBHOOK_SECRET=whsec_local pnpm webhook:post 101
+```
+
+The argument is the draft id to put in the payload, so the event can point at whatever the stub serves. A 202 means the signature and the mapping worked, and the receiver has started a run on the Workflow service that `WORKFLOW_SLUG` names without waiting for it. A 401 means the secret here and the secret the receiver read do not match.
+
 ## Deployment
 
 `render.yaml` covers the webhook receiver, the Key Value instance, and the env groups. The Workflow
@@ -481,7 +494,7 @@ host.
    appear in the repost channel under your own name.
 
 Slack does not check the Request URL when you save it, so a wrong URL shows up only on the
-first click. Three failures to tell apart:
+first click. Four failures to tell apart:
 
 - Slack shows a warning in the channel and nothing else happens. The receiver did not
   answer 200 within three seconds. Check that it is deployed and that the Request URL has

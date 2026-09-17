@@ -17,27 +17,33 @@ exact peer dependency: one physical copy means every task registers into the sam
 | `@render-lab/tasks-render-kv` | 0.3.0          | `get`, `set`, `deleteKeys`, `lock`, `unlock`. `src/amplifier/seen.ts` builds the announced markers and the in-flight locks from them.                             |
 | `@render-lab/tasks-slack`     | 0.3.0          | `postMessageImpl`, `webApiPort`, `addReaction`, and `SLACK_RETRY`. `src/slack/postNote.ts` wraps the first three.                                                 |
 | `@render-lab/tasks-llm`       | 0.8.1          | `complete`, called in `src/summary/summarize.ts` for the note's lead line.                                                                                        |
-| `@render-lab/tasks-core`      | 0.3.0          | `createHttpClient`, which backs the Typefully REST port in `src/typefully/client.ts`. Defines no tasks.                                                           |
+| `@render-lab/tasks-core`      | 0.3.0          | `createHttpClient`, which backs the Typefully port in `src/typefully/client.ts` and the Notion port in `src/notion/client.ts`. Defines no tasks.                  |
 | `@render-lab/triggers`        | 0.2.0          | `createDispatchServer`, `renderDispatcher`, and the `WebhookAdapter` contract, which are the whole `amplifier-webhook` service.                                   |
 | `hono` + `@hono/node-server`  | 4.13.5 / 2.1.1 | The Slack routes mount on the Hono app `createDispatchServer` returns, and the receiver serves it itself. Pinned to the versions `@render-lab/triggers` resolves. |
 | `@render-lab/test-utils`      | 0.1.0          | `fakeCtx` for the tests and `localCtx` for `pnpm local:run`.                                                                                                      |
 
 ## Amplifier's own tasks
 
-Five tasks are entry points, started from outside the workflow. The rest are composed from them.
+Six tasks are entry points, started from outside the workflow. The rest are composed from them.
 
-| Task                      | Started by                             | Retry                |
-| ------------------------- | -------------------------------------- | -------------------- |
-| `amplifier.checkPosts`    | By hand, to rescan the lookback window | none                 |
-| `amplifier.handleEvent`   | A Typefully `draft.published` delivery | `HANDLE_EVENT_RETRY` |
-| `amplifier.announcePost`  | By hand, with a permalink or draft id  | none                 |
-| `amplifier.repost`        | A Repost button click in Slack         | `REPOST_RETRY`       |
-| `amplifier.saveUserToken` | The Slack OAuth callback               | none                 |
-| `amplifier.postNote`      | The four tasks above that post         | `SLACK_RETRY`        |
-| `typefully.listPublished` | `checkPosts` and `announcePost`        | `TYPEFULLY_RETRY`    |
-| `ping`                    | By hand, to check the registry loaded  | none                 |
+| Task                      | Started by                                   | Retry                |
+| ------------------------- | -------------------------------------------- | -------------------- |
+| `amplifier.checkPosts`    | By hand, to rescan the lookback window       | none                 |
+| `amplifier.handleEvent`   | A Typefully `draft.published` delivery       | `HANDLE_EVENT_RETRY` |
+| `amplifier.announcePost`  | By hand, with a permalink or draft id        | none                 |
+| `amplifier.pingOwners`    | `announceGroups`, and by hand with a page id | none                 |
+| `amplifier.repost`        | A Repost button click in Slack               | `REPOST_RETRY`       |
+| `amplifier.saveUserToken` | The Slack OAuth callback                     | none                 |
+| `amplifier.postNote`      | Every task above that posts to Slack         | `SLACK_RETRY`        |
+| `amplifier.lookupUser`    | `pingOwners`, per owner                      | `SLACK_RETRY`        |
+| `amplifier.openDm`        | `pingOwners`, per owner                      | `SLACK_RETRY`        |
+| `amplifier.messageLink`   | `pingOwners`, for the thread the DM links to | `SLACK_RETRY`        |
+| `typefully.listPublished` | `checkPosts`, `announcePost`, `pingOwners`   | `TYPEFULLY_RETRY`    |
+| `notion.findLaunches`     | `pingOwners`, to find the launch page        | `NOTION_RETRY`       |
+| `notion.getPage`          | `pingOwners`, to read the owners             | `NOTION_RETRY`       |
+| `ping`                    | By hand, to check the registry loaded        | none                 |
 
-`src/main.ts` imports the five entry modules for the side effect. Each one calls `task()` at load, so
+`src/main.ts` imports the six entry modules for the side effect. Each one calls `task()` at load, so
 the import registers that task and, through its own imports, every vendor task it calls. A new entry
 task that is not imported there does not exist on the deploy. To confirm the registry loaded, run
 `render workflows start <slug>/ping --input='[]'` and expect `pong`.
@@ -50,9 +56,13 @@ calls: `typefully.listPublished`, then `kv.get` per draft, then `llm.complete`, 
 No second dispatch, no second poll interval. It exists to carry its own retry policy and its own name
 in the Dashboard.
 
-Amplifier's tasks compose vendor tasks instead of calling vendor clients, with one exception:
-`saveUserTokenImpl` posts to `oauth.v2.access` through an injected `fetchImpl`, because no packaged
-task covers the OAuth exchange.
+Amplifier's tasks compose vendor tasks instead of calling vendor clients, except where no packaged
+task covers the call. `saveUserTokenImpl` posts to `oauth.v2.access` through an injected `fetchImpl`.
+`amplifier.lookupUser`, `amplifier.openDm` and `amplifier.messageLink` go through `callSlack` in
+`src/slack/api.ts`, because `SlackWebPort` in 0.3.0 wraps neither `users.lookupByEmail` nor
+`conversations.open`, and its own `slack.getPermalink` throws on an `ok: false` body and ignores
+`SLACK_API_BASE_URL`. `callSlack` returns the `ok: false` body instead: `users_not_found` is an
+answer about one person, not a transport failure.
 
 ## Where the retry policies matter
 
@@ -116,13 +126,20 @@ and 0.3.0 wraps no `conversations.replies` task, so reading the thread back from
 API call and a `channels:history` scope. `announceGroups` writes the rendered messages to Key Value
 when it posts them instead.
 
-## The Typefully port
+## The Typefully and Notion ports
 
 `listPublishedImpl` takes a `TypefullyDeps` object with a default, and the default port is built on
 first use through a getter, never at import. `TYPEFULLY_API_KEY` and `TYPEFULLY_BASE_URL` come from the
 environment the run has rather than the one the module loaded in. Tests pass a fake port.
 `typefullyWebhook` reads `TYPEFULLY_WEBHOOK_SECRET` the same way, so an unconfigured receiver rejects
 deliveries instead of answering 500 to every one of them.
+
+`notion.getPage` and `notion.findLaunches` take a `NotionDeps` object built the same way, and
+`src/notion/client.ts` pins the `Notion-Version` header in code rather than in the environment,
+because Notion changes response shapes between versions. Both ports pass their variable name and
+real base URL to `checkedBaseUrl` in `src/http/baseUrl.ts`, so `TYPEFULLY_BASE_URL`,
+`NOTION_BASE_URL` and `SLACK_API_BASE_URL` can only name the real API or a loopback address. A
+credential cannot be redirected to a third party by setting one variable.
 
 ## The receiver
 
@@ -152,6 +169,12 @@ form-encoded with the JSON in a `payload` field, and the adapter path `JSON.pars
 task, so a call that unexpectedly chains a subtask fails loudly instead of receiving `undefined`. For a
 task that does chain, `test/support/taskCtx.ts` wraps `fakeCtx` with a `run` that dispatches by task
 name to stub handlers and records every call in order. An unstubbed name still throws.
+
+`test/support/handlers.ts` builds on that with `runCtx`, a context where every task an entry point
+chains already succeeds, so a test overrides only the one it is about. `test/support/kvStore.ts` is a
+Map-backed Key Value with a virtual clock, which is how a test ages a marker or an in-flight lock.
+`test/support/notionPort.ts` fakes the Notion port, and `test/support/fixtures.ts` builds the
+`PublishedPost` and `PostGroup` values the announce tests share.
 
 `localCtx()` runs chained tasks in-process by invoking each target's undecorated function.
 `scripts/local-run.ts` uses it to drive the whole announce path against a local Key Value with no
