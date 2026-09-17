@@ -169,13 +169,14 @@ describe("remindRepostImpl, a note that needs no reminder", () => {
 });
 
 describe("remindRepostImpl, dry run", () => {
-  it("logs the reminder and writes nothing", async () => {
-    const { ctx, calls, deps } = remindCtx();
+  it("logs the reminder and writes nothing, without waiting out the delay", async () => {
+    const { ctx, calls, slept, deps } = remindCtx();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       const result = await remindRepostImpl(ctx, input, { ...env, DRY_RUN: "true" }, deps);
       expect(result).toEqual({ reminded: false });
       expect(String(log.mock.calls[0]?.[0])).toContain("would remind:");
+      expect(slept).toEqual([]);
       expect(posted(calls)).toHaveLength(0);
       expect(calls.some((c) => c.name === "kv.set")).toBe(false);
     } finally {

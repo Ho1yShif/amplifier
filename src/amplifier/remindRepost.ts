@@ -71,6 +71,13 @@ export async function remindRepostImpl(
     noteKey: input.noteKey,
   });
 
+  // Checked before the sleep, so a dry run answers now instead of holding the
+  // run open for the whole delay to print one line.
+  if (config.dryRun) {
+    console.log(`[dry run] would remind:\n${message.text}`);
+    return { reminded: false };
+  }
+
   const now = deps.now ?? (() => Date.now());
   await (deps.sleep ?? wait)(Math.max(0, input.dueAtMs - now()));
 
@@ -80,11 +87,6 @@ export async function remindRepostImpl(
   const key = remindedKey(input.noteKey);
   const reminded = await ctx.run(kvGet, { key });
   if (reminded.value !== null) return { reminded: false, reason: "already-reminded" };
-
-  if (config.dryRun) {
-    console.log(`[dry run] would remind:\n${message.text}`);
-    return { reminded: false };
-  }
 
   await ctx.run(kvSet, { key, value: "reminded", ttlSeconds: config.seenTtlSeconds });
   await ctx.run(postNote, message);
