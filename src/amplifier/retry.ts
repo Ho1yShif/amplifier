@@ -38,14 +38,16 @@ export const REMIND_RETRY: Retry = {
 /** Wall clock one amplifier.remindRepost run may spend, its sleep included. */
 export const REMIND_TIMEOUT_SECONDS = 2_400;
 
+/** Minutes of the remind timeout kept for the Key Value reads and the Slack post. */
+const REMIND_POST_MARGIN_MINUTES = 5;
+
 /**
  * Widest AMPLIFIER_REMINDER_MINUTES that can still produce a reminder.
  *
  * The delay is a sleep inside the task, so a delay past the task's timeout
- * kills the run before it reads either marker. The 5-minute margin covers the
- * Key Value reads and the Slack post that follow the sleep.
+ * kills the run before it reads either marker.
  */
-export const MAX_REMINDER_MINUTES = REMIND_TIMEOUT_SECONDS / 60 - 5;
+export const MAX_REMINDER_MINUTES = REMIND_TIMEOUT_SECONDS / 60 - REMIND_POST_MARGIN_MINUTES;
 
 /** Total backoff a retry policy spends, in minutes. */
 function budgetMinutes({ maxRetries, waitDurationMs, backoffScaling }: Retry): number {
