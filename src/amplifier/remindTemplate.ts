@@ -43,7 +43,7 @@ export interface RemindOptions {
  * absent. `text` is the notification fallback.
  */
 export function renderReminder(opts: RemindOptions): PostNoteInput {
-  const text = opts.text.split(CHANNEL_PLACEHOLDER).join(opts.repostChannel);
+  const text = opts.text.replaceAll(CHANNEL_PLACEHOLDER, opts.repostChannel);
   const blocks: SlackBlock[] = [section(text), repostBlock(opts.repostChannel, opts.noteKey)];
   return {
     text,
