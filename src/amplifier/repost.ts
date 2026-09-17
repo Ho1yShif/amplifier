@@ -11,7 +11,9 @@ import {
 } from "../slack/oauth.js";
 import { postNote } from "../slack/postNote.js";
 import { respondEphemeral, type ResponseFetch } from "../slack/respond.js";
+import { claimNote, isRepostClaimed } from "./repostClaim.js";
 import { repostedKey } from "./reposted.js";
+import { releaseClaim, runToken } from "./seen.js";
 import { readNote } from "./storedNote.js";
 import { withoutRepostButton } from "./template.js";
 import { REPOST_RETRY } from "./retry.js";
@@ -31,7 +33,13 @@ export interface RepostInput {
 
 /** Why a click produced no repost. */
 export type RepostRefusal =
-  "no-token" | "no-note" | "not-in-channel" | "no-repost-channel" | "no-authorize-link";
+  | "no-token"
+  | "no-note"
+  | "not-in-channel"
+  | "no-repost-channel"
+  | "no-authorize-link"
+  | "already-reposted"
+  | "repost-in-flight";
 
 export interface RepostResult {
   reposted: boolean;
@@ -97,6 +105,16 @@ export async function repostImpl(
     return { reposted: false, reason: "no-repost-channel" };
   }
 
+  // Read before the user token, so a click on a note somebody already reposted
+  // is answered with that and not with an authorize link for a repost that will
+  // not happen. `claimNote` re-reads this marker under the lock, which is the
+  // read that decides.
+  const { value: reposted } = await ctx.run(kvGet, { key: repostedKey(input.noteKey) });
+  if (reposted !== null) {
+    await reply(`Somebody already reposted this note to #${repostChannel}.`);
+    return { reposted: false, reason: "already-reposted" };
+  }
+
   const { value: userToken } = await ctx.run(kvGet, { key: userTokenKey(input.userId) });
   if (userToken === null) {
     return {
@@ -123,11 +141,41 @@ export async function repostImpl(
     return { reposted: false };
   }
 
+  // Claimed before anything is posted, because the button stays live and a
+  // signature is valid for five minutes: a double-click and a replay of one
+  // captured click both arrive as two runs, and the receiver answers 200 and
+  // dispatches, so nothing upstream collapses them.
+  const outcome = await claimNote(ctx, input.noteKey, runToken());
+  if (!isRepostClaimed(outcome)) {
+    if (outcome.reason === "reposted") {
+      // Written between the unlocked read above and the lock.
+      await reply(`Somebody already reposted this note to #${repostChannel}.`);
+      return { reposted: false, reason: "already-reposted" };
+    }
+    await reply(
+      `This note is being reposted to #${repostChannel} right now. Check the channel in a ` +
+        `few minutes, and click again if nothing landed.`,
+    );
+    return { reposted: false, reason: "repost-in-flight" };
+  }
+
   let threadTs: string | undefined;
   try {
     ({ ts: threadTs } = await ctx.run(postNote, { ...parent, userToken }));
   } catch (err) {
-    if (!isSlackError(err, "not_in_channel")) throw err;
+    if (!isSlackError(err, "not_in_channel")) {
+      // The claim is kept, not released: `chat.postMessage` is not idempotent
+      // and Slack may have accepted a post it then failed to report, so the
+      // retry is given up rather than risking a second thread. The lock expires
+      // in INFLIGHT_TTL_SECONDS and the button works again after that.
+      console.error(
+        `[amplifier] The repost of ${input.noteKey} failed on the parent post, so the claim ` +
+          `is held and further clicks are refused until it expires.`,
+        err,
+      );
+      throw err;
+    }
+    await releaseClaim(ctx, outcome.claim);
     await reply(
       `Join #${repostChannel} and click Repost again — Slack will not post you into a ` +
         `channel you are not in.`,
@@ -244,5 +292,9 @@ async function markSource(
  * REPOST_RETRY is short because a person is waiting on the ephemeral answer. A
  * retry can only fire before the parent is posted: everything after it either
  * swallows its own failure or answers the clicker and returns.
+ *
+ * The claim is held and not released once the parent is posted. The reposted
+ * marker takes over from it, and the lock expiring is what lets a note be
+ * reposted again after a run died mid-thread.
  */
 export const repost = task({ name: "amplifier.repost", retry: REPOST_RETRY }, repostImpl);
