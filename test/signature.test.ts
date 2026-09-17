@@ -1,8 +1,8 @@
-import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isFresh, timingSafeEquals } from "../src/http/signature.js";
 import { parseRepostClick, verifySlackSignature } from "../src/slack/interactivity.js";
 import { REPOST_ACTION_ID } from "../src/amplifier/template.js";
+import { slackSignedHeaders } from "./support/slackSignature.js";
 
 const SECRET = "slack-signing-secret";
 const NOW_MS = Date.parse("2026-09-11T12:00:00Z");
@@ -11,8 +11,7 @@ const RAW_BODY = "payload=%7B%22ok%22%3Atrue%7D";
 
 /** Headers Slack would send for `rawBody`, signed with `secret`. */
 function signed(rawBody: string, secret: string, timestamp = TIMESTAMP) {
-  const digest = createHmac("sha256", secret).update(`v0:${timestamp}:${rawBody}`).digest("hex");
-  return { "x-slack-request-timestamp": timestamp, "x-slack-signature": `v0=${digest}` };
+  return slackSignedHeaders(rawBody, secret, timestamp);
 }
 
 beforeEach(() => {

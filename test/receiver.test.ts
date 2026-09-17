@@ -1,14 +1,21 @@
-import { createHmac } from "node:crypto";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { WorkflowDispatcher } from "@render-lab/triggers";
 import { buildReceiver } from "../src/receiver.js";
 import { CALLBACK_PATH, signState } from "../src/slack/oauth.js";
 import { REPOST_ACTION_ID } from "../src/amplifier/template.js";
+import { slackSignedHeaders } from "./support/slackSignature.js";
 
 const SECRET = "signing-secret";
 const USER = "U123";
 const NOW_MS = Date.parse("2026-09-11T12:00:00Z");
+const TIMESTAMP = String(Math.floor(NOW_MS / 1000));
 const BASE = "https://amplifier-webhook.onrender.com";
+
+/** Past the 1 MiB cap `POST /slack/interactivity` enforces. */
+const OVER_CAP_BYTES = 2 * 1024 * 1024;
+
+/** The content type Slack posts interactivity with. */
+const FORM_ENCODED = { "content-type": "application/x-www-form-urlencoded" };
 
 const env: NodeJS.ProcessEnv = {
   SLACK_SIGNING_SECRET: SECRET,
@@ -26,14 +33,45 @@ function dispatcherReturning(results: unknown, timedOut = false): WorkflowDispat
   } as unknown as WorkflowDispatcher;
 }
 
-function callback(dispatcher: WorkflowDispatcher, state: string) {
-  const app = buildReceiver({
+/** A dispatcher that records every `start` call instead of dispatching. */
+function recordingDispatcher() {
+  const started: { task: string; args: unknown[] }[] = [];
+  const dispatcher = {
+    start: async (task: string, args: unknown[]) => {
+      started.push({ task, args });
+      return { runId: "run-1" };
+    },
+    run: async () => ({ runId: "run-1", status: "succeeded", results: [], timedOut: false }),
+  } as unknown as WorkflowDispatcher;
+  return { dispatcher, started };
+}
+
+/** A form-encoded interactivity body, the way Slack posts a button click. */
+function clickBody(payload: unknown): string {
+  return new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
+}
+
+function receiver(dispatcher: WorkflowDispatcher) {
+  return buildReceiver({
     dispatcher,
     workflowSlug: "amplifier",
     env,
     now: () => new Date(NOW_MS),
   });
-  return app.request(`${CALLBACK_PATH}?code=abc&state=${encodeURIComponent(state)}`);
+}
+
+function callback(dispatcher: WorkflowDispatcher, state: string) {
+  return receiver(dispatcher).request(
+    `${CALLBACK_PATH}?code=abc&state=${encodeURIComponent(state)}`,
+  );
+}
+
+function interactivity(
+  dispatcher: WorkflowDispatcher,
+  body: string,
+  headers: Record<string, string>,
+) {
+  return receiver(dispatcher).request("/slack/interactivity", { method: "POST", body, headers });
 }
 
 describe("GET /slack/oauth/callback", () => {
@@ -69,49 +107,6 @@ describe("GET /slack/oauth/callback", () => {
   });
 });
 
-/** A dispatcher that records every `start` call instead of dispatching. */
-function recordingDispatcher() {
-  const started: { task: string; args: unknown[] }[] = [];
-  const dispatcher = {
-    start: async (task: string, args: unknown[]) => {
-      started.push({ task, args });
-      return { runId: "run-1" };
-    },
-    run: async () => ({ runId: "run-1", status: "succeeded", results: [], timedOut: false }),
-  } as unknown as WorkflowDispatcher;
-  return { dispatcher, started };
-}
-
-/** Headers Slack would send for `rawBody`, signed the way Slack signs them. */
-function slackHeaders(rawBody: string, secret = SECRET) {
-  const timestamp = String(Math.floor(NOW_MS / 1000));
-  const digest = createHmac("sha256", secret).update(`v0:${timestamp}:${rawBody}`).digest("hex");
-  return {
-    "content-type": "application/x-www-form-urlencoded",
-    "x-slack-request-timestamp": timestamp,
-    "x-slack-signature": `v0=${digest}`,
-  };
-}
-
-/** A form-encoded interactivity body, the way Slack posts a button click. */
-function clickBody(payload: unknown) {
-  return new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
-}
-
-function interactivity(
-  dispatcher: WorkflowDispatcher,
-  body: string,
-  headers: Record<string, string>,
-) {
-  const app = buildReceiver({
-    dispatcher,
-    workflowSlug: "amplifier",
-    env,
-    now: () => new Date(NOW_MS),
-  });
-  return app.request("/slack/interactivity", { method: "POST", body, headers });
-}
-
 describe("POST /slack/interactivity", () => {
   const click = {
     actions: [{ action_id: REPOST_ACTION_ID, value: "amplifier:note:1" }],
@@ -121,15 +116,14 @@ describe("POST /slack/interactivity", () => {
     response_url: "https://hooks.slack.com/actions/T/1/2",
   };
 
-  beforeEach(() => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-  });
-
   it("starts a repost for a signed click", async () => {
     const { dispatcher, started } = recordingDispatcher();
     const body = clickBody(click);
 
-    const res = await interactivity(dispatcher, body, slackHeaders(body));
+    const res = await interactivity(dispatcher, body, {
+      ...FORM_ENCODED,
+      ...slackSignedHeaders(body, SECRET, TIMESTAMP),
+    });
 
     expect(res.status).toBe(200);
     expect(started).toEqual([
@@ -150,11 +144,9 @@ describe("POST /slack/interactivity", () => {
 
   it("rejects a body over the cap before it checks the signature", async () => {
     const { dispatcher, started } = recordingDispatcher();
-    const body = clickBody({ ...click, padding: "A".repeat(2 * 1024 * 1024) });
+    const body = clickBody({ ...click, padding: "A".repeat(OVER_CAP_BYTES) });
 
-    const res = await interactivity(dispatcher, body, {
-      "content-type": "application/x-www-form-urlencoded",
-    });
+    const res = await interactivity(dispatcher, body, FORM_ENCODED);
 
     expect(res.status).toBe(413);
     expect(await res.json()).toEqual({ error: "payload too large" });
@@ -165,7 +157,10 @@ describe("POST /slack/interactivity", () => {
     const { dispatcher, started } = recordingDispatcher();
     const body = clickBody(click);
 
-    const res = await interactivity(dispatcher, body, slackHeaders(body, "wrong-secret"));
+    const res = await interactivity(dispatcher, body, {
+      ...FORM_ENCODED,
+      ...slackSignedHeaders(body, "wrong-secret", TIMESTAMP),
+    });
 
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "invalid signature" });
