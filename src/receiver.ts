@@ -25,13 +25,13 @@ const EXCHANGE_TIMEOUT_MS = 20_000;
  * Cap for the routes `createDispatchServer` registers, passed to it explicitly
  * so this service does not inherit whatever the vendor's default becomes.
  */
-const MAX_BODY_BYTES = 1_048_576;
+const MAX_DISPATCH_BODY_BYTES = 1_048_576;
 
 /**
- * Cap for Slack interactivity, which is tighter because the payload is known.
- * A real Repost click measures about 2 KB form-encoded, note blocks included,
- * so this leaves 30x headroom and still bounds what one unsigned request can
- * hold in memory.
+ * Cap for Slack interactivity, tighter because the payload is a known shape. A
+ * real Repost click measures about 2 KB form-encoded, note blocks included, so
+ * this leaves room for a much longer note and still bounds what one unsigned
+ * request holds in memory.
  */
 const MAX_INTERACTIVITY_BYTES = 65_536;
 
@@ -50,7 +50,7 @@ export function buildReceiver(opts: ReceiverOptions): Hono {
     workflowSlug: opts.workflowSlug,
     dispatcher: opts.dispatcher,
     webhooks: { typefully: typefullyWebhook({ env, now }) },
-    maxBodyBytes: MAX_BODY_BYTES,
+    maxBodyBytes: MAX_DISPATCH_BODY_BYTES,
   });
 
   /**

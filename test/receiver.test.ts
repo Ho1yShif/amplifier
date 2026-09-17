@@ -13,10 +13,9 @@ const BASE = "https://amplifier-webhook.onrender.com";
 
 /**
  * Past the 64 KiB cap `POST /slack/interactivity` enforces, and under the 1 MiB
- * cap the rest of the service uses, so it proves the tighter cap is the one on
- * that route.
+ * cap the rest of the service uses, so it pins the tighter cap to that route.
  */
-const OVER_CAP_BYTES = 128 * 1024;
+const OVER_INTERACTIVITY_CAP_BYTES = 128 * 1024;
 
 /** The content type Slack posts interactivity with. */
 const FORM_ENCODED = { "content-type": "application/x-www-form-urlencoded" };
@@ -148,7 +147,7 @@ describe("POST /slack/interactivity", () => {
 
   it("rejects a body over the cap before it checks the signature", async () => {
     const { dispatcher, started } = recordingDispatcher();
-    const body = clickBody({ ...click, padding: "A".repeat(OVER_CAP_BYTES) });
+    const body = clickBody({ ...click, padding: "A".repeat(OVER_INTERACTIVITY_CAP_BYTES) });
 
     const res = await interactivity(dispatcher, body, FORM_ENCODED);
 
