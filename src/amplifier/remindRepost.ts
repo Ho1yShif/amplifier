@@ -3,6 +3,7 @@ import { get as kvGet, set as kvSet } from "@render-lab/tasks-render-kv";
 import { loadConfig } from "../config.js";
 import { postNote } from "../slack/postNote.js";
 import { renderReminder } from "./remindTemplate.js";
+import { remindedKey, repostedKey } from "./reposted.js";
 import { REMIND_RETRY, REMIND_TIMEOUT_SECONDS } from "./retry.js";
 
 export interface RemindRepostInput {
@@ -12,7 +13,10 @@ export interface RemindRepostInput {
   messageTs: string;
   /** Epoch milliseconds the check is due at. */
   dueAtMs: number;
-  /** Key Value key of the stored note, which the reminder's Repost button carries. */
+  /**
+   * Key Value key of the stored note. The reminder's Repost button carries it,
+   * and both markers are built from it.
+   */
   noteKey: string;
 }
 
@@ -27,24 +31,6 @@ export interface RemindRepostResult {
 export interface RemindRepostDeps {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
-}
-
-/**
- * Key `amplifier.repost` writes when a note has been reposted.
- *
- * A Key Value marker and not the note's reactions, because reading reactions
- * needs a `reactions:read` scope and a raw Slack call:
- * `@render-lab/tasks-slack` 0.3.0 wraps neither `reactions.get` nor
- * `conversations.replies`. A repost done by hand, without the button, writes no
- * marker and still gets a reminder.
- */
-export function repostedKey(channel: string, messageTs: string): string {
-  return `amplifier:reposted:${channel}:${messageTs}`;
-}
-
-/** Key this task writes before it posts, so one note gets one reminder. */
-export function remindedKey(channel: string, messageTs: string): string {
-  return `amplifier:reminded:${channel}:${messageTs}`;
 }
 
 function wait(ms: number): Promise<void> {
@@ -77,18 +63,6 @@ export async function remindRepostImpl(
     return { reminded: false, reason: "no-repost-channel" };
   }
 
-  const now = deps.now ?? (() => Date.now());
-  await (deps.sleep ?? wait)(Math.max(0, input.dueAtMs - now()));
-
-  const reposted = await ctx.run(kvGet, {
-    key: repostedKey(input.channel, input.messageTs),
-  });
-  if (reposted.value !== null) return { reminded: false, reason: "reposted" };
-
-  const key = remindedKey(input.channel, input.messageTs);
-  const reminded = await ctx.run(kvGet, { key });
-  if (reminded.value !== null) return { reminded: false, reason: "already-reminded" };
-
   const message = renderReminder({
     channel: input.channel,
     threadTs: input.messageTs,
@@ -96,6 +70,16 @@ export async function remindRepostImpl(
     repostChannel: config.repostChannel,
     noteKey: input.noteKey,
   });
+
+  const now = deps.now ?? (() => Date.now());
+  await (deps.sleep ?? wait)(Math.max(0, input.dueAtMs - now()));
+
+  const reposted = await ctx.run(kvGet, { key: repostedKey(input.noteKey) });
+  if (reposted.value !== null) return { reminded: false, reason: "reposted" };
+
+  const key = remindedKey(input.noteKey);
+  const reminded = await ctx.run(kvGet, { key });
+  if (reminded.value !== null) return { reminded: false, reason: "already-reminded" };
 
   if (config.dryRun) {
     console.log(`[dry run] would remind:\n${message.text}`);

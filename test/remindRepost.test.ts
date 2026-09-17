@@ -1,11 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  remindedKey,
-  remindRepostImpl,
-  repostedKey,
-  type RemindRepostInput,
-} from "../src/amplifier/remindRepost.js";
+import { remindRepostImpl, type RemindRepostInput } from "../src/amplifier/remindRepost.js";
 import { CHANNEL_PLACEHOLDER } from "../src/amplifier/remindTemplate.js";
+import { remindedKey, repostedKey } from "../src/amplifier/reposted.js";
+import { noteKey } from "../src/amplifier/storedNote.js";
 import { REPOST_ACTION_ID } from "../src/amplifier/template.js";
 import { kvStore } from "./support/kvStore.js";
 import { runCtx } from "./support/handlers.js";
@@ -24,7 +21,7 @@ const input: RemindRepostInput = {
   channel: "C_NOTE",
   messageTs: "17580000.001",
   dueAtMs: NOW_MS + 30 * 60_000,
-  noteKey: "amplifier:note:1",
+  noteKey: noteKey(["1"]),
 };
 
 /** A context over a shared fake Key Value, plus the sleeps the run asked for. */
@@ -52,9 +49,13 @@ function posted(calls: TaskCall[]) {
 }
 
 describe("keys", () => {
-  it("namespaces both markers by channel and ts", () => {
-    expect(repostedKey("C1", "1.1")).toBe("amplifier:reposted:C1:1.1");
-    expect(remindedKey("C1", "1.1")).toBe("amplifier:reminded:C1:1.1");
+  it("namespaces both markers by the note's drafts, as the note key does", () => {
+    expect(repostedKey(noteKey(["1", "2"]))).toBe("amplifier:reposted:1+2");
+    expect(remindedKey(noteKey(["1", "2"]))).toBe("amplifier:reminded:1+2");
+  });
+
+  it("keeps a key it does not recognize whole, so the marker stays namespaced", () => {
+    expect(repostedKey("elsewhere:7")).toBe("amplifier:reposted:elsewhere:7");
   });
 });
 
@@ -105,7 +106,7 @@ describe("remindRepostImpl, an un-reposted note", () => {
       (b: Record<string, unknown>) => b["type"] === "actions",
     );
     expect(actions.elements[0].action_id).toBe(REPOST_ACTION_ID);
-    expect(actions.elements[0].value).toBe("amplifier:note:1");
+    expect(actions.elements[0].value).toBe(noteKey(["1"]));
     expect(actions.elements[0].text.text).toBe("Repost to #amplify-wider");
   });
 
@@ -115,11 +116,11 @@ describe("remindRepostImpl, an un-reposted note", () => {
 
     const names = calls.map((c) => c.name);
     const marked = calls.findIndex(
-      (c) => c.name === "kv.set" && c.input.key === remindedKey("C_NOTE", "17580000.001"),
+      (c) => c.name === "kv.set" && c.input.key === remindedKey(input.noteKey),
     );
     expect(marked).toBeGreaterThan(-1);
     expect(marked).toBeLessThan(names.indexOf("amplifier.postNote"));
-    expect(kv.keys()).toContain(remindedKey("C_NOTE", "17580000.001"));
+    expect(kv.keys()).toContain(remindedKey(input.noteKey));
   });
 });
 
@@ -127,7 +128,7 @@ describe("remindRepostImpl, a note that needs no reminder", () => {
   it("posts nothing when the reposted marker is set", async () => {
     const { ctx, calls, deps } = remindCtx({
       "kv.get": ({ key }) => ({
-        value: key === repostedKey("C_NOTE", "17580000.001") ? "reposted" : null,
+        value: key === repostedKey(input.noteKey) ? "reposted" : null,
       }),
     });
     const result = await remindRepostImpl(ctx, input, env, deps);
@@ -139,7 +140,7 @@ describe("remindRepostImpl, a note that needs no reminder", () => {
   it("posts nothing when the reminded marker is set", async () => {
     const { ctx, calls, deps } = remindCtx({
       "kv.get": ({ key }) => ({
-        value: key === remindedKey("C_NOTE", "17580000.001") ? "reminded" : null,
+        value: key === remindedKey(input.noteKey) ? "reminded" : null,
       }),
     });
     const result = await remindRepostImpl(ctx, input, env, deps);

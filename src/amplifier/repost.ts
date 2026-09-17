@@ -11,7 +11,7 @@ import {
 } from "../slack/oauth.js";
 import { postNote } from "../slack/postNote.js";
 import { respondEphemeral, type ResponseFetch } from "../slack/respond.js";
-import { repostedKey } from "./remindRepost.js";
+import { repostedKey } from "./reposted.js";
 import { readNote } from "./storedNote.js";
 import { withoutRepostButton } from "./template.js";
 import { REPOST_RETRY } from "./retry.js";
@@ -207,7 +207,7 @@ async function markSource(
 ): Promise<void> {
   try {
     await ctx.run(kvSet, {
-      key: repostedKey(input.channel, input.messageTs),
+      key: repostedKey(input.noteKey),
       value: "reposted",
       ttlSeconds,
     });

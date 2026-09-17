@@ -15,6 +15,9 @@ export interface StoredNote {
   replies: PostMessageInput[];
 }
 
+/** Prefix every stored-note key carries. */
+const NOTE_PREFIX = "amplifier:note:";
+
 /**
  * Key the posted thread is stored under. The button carries this string.
  *
@@ -23,7 +26,17 @@ export interface StoredNote {
  * afterwards. Re-announcing the same drafts overwrites the record.
  */
 export function noteKey(draftIds: string[]): string {
-  return `amplifier:note:${draftIds.join("+")}`;
+  return `${NOTE_PREFIX}${draftIds.join("+")}`;
+}
+
+/**
+ * The drafts inside a stored-note key, which the repost markers key by.
+ *
+ * A key from anywhere but `noteKey` is passed through, so a marker is still
+ * namespaced by whatever the button carried.
+ */
+export function noteIds(key: string): string {
+  return key.startsWith(NOTE_PREFIX) ? key.slice(NOTE_PREFIX.length) : key;
 }
 
 /** Store a posted thread under the announced marker's TTL. */

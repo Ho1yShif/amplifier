@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { repostedKey } from "../src/amplifier/remindRepost.js";
+import { repostedKey } from "../src/amplifier/reposted.js";
 import { repostImpl, type RepostInput } from "../src/amplifier/repost.js";
 import { loadConfig } from "../src/config.js";
 import { noteKey, type StoredNote } from "../src/amplifier/storedNote.js";
@@ -123,10 +123,9 @@ describe("repostImpl, the happy path", () => {
     await repostImpl(ctx, input, env, { fetchImpl, now: () => NOW });
 
     expect(
-      calls.find((c) => c.name === "kv.set" && c.input.key === repostedKey("C1", "17580000.001"))
-        ?.input,
+      calls.find((c) => c.name === "kv.set" && c.input.key === repostedKey(noteKey(["1"])))?.input,
     ).toEqual({
-      key: repostedKey("C1", "17580000.001"),
+      key: repostedKey(noteKey(["1"])),
       value: "reposted",
       ttlSeconds: config.seenTtlSeconds,
     });

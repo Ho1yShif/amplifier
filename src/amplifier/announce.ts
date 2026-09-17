@@ -275,9 +275,9 @@ async function pingLaunchOwners(
  * dispatch must not fail the announce run or re-post the note.
  *
  * `channel` is the id Slack echoed back, falling back to the configured name.
- * `amplifier.repost` writes its reposted marker under the id from the click
- * payload, so a note posted to a bare channel name whose `ts` came back without
- * a channel gets a reminder even after somebody reposts it.
+ * Only the reminder's own reply goes there. Both markers are keyed by the note
+ * key, which `amplifier.repost` has too, so the two paths cannot disagree about
+ * which channel a note is in.
  *
  * The reminder carries its own Repost button, so it needs the same note key the
  * parent's button holds. The stored note lives as long as the announced marker,
