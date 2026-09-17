@@ -167,6 +167,8 @@ region Oregon, built from `main`.
 
    `RENDER_API_KEY` and `WORKFLOW_SLUG` appear twice, once per group. The receiver uses them to start a run from a webhook delivery, and the Workflow service uses them to start the repost reminder's own run. Leave them out of `amplifier-workflow` if you do not want reminders; a run then logs that it skipped the dispatch and the note gets no reminder. See [Repost reminders](#repost-reminders).
 
+   Both services hold a key that can do anything in the workspace, because Render API keys are not scoped to one service. Amplifier only ever starts a run on its own workflow slug. Issue the key from a Render account with access to this workspace alone, and rotate it in both groups together.
+
    `TYPEFULLY_WEBHOOK_SECRET` belongs in `amplifier-triggers` too, but Typefully does not show it until step 11, so leave it out for now. Leave `AMPLIFIER_SUMMARY_MODEL` out as well; `render.yaml` gives it a literal value and the apply adds it to `amplifier-workflow`. `REDIS_URL` comes later, in step 9, because `amplifier-kv` does not exist yet. Nothing here can use `generateValue`; every value is one you paste in.
 
 5. Apply `render.yaml`, with the Deploy to Render button above or from the Dashboard, to create the `amplifier-webhook` service and the Key Value instance, and to link `amplifier-triggers` to the receiver. The apply asks for no values, because step 4 set them all.
