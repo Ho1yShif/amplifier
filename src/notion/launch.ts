@@ -131,8 +131,8 @@ function readOwners(value: NotionPropertyValue | undefined): Owner[] {
  *
  * A page with no Typefully URL is the usual state of a launch page, and a page
  * whose owner property is empty is the second-most usual, so both are skips
- * rather than errors. Owners with no email are kept: `amplifier.pingOwners`
- * reports them in the channel so somebody amplifies the post by hand.
+ * rather than errors. Owners with no email are kept, and
+ * `amplifier.pingOwners` logs them as unreachable.
  */
 export function readLaunch(page: NotionPage, opts: ReadLaunchOptions): LaunchOutcome {
   const pageId = page.id?.trim();

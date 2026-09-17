@@ -335,9 +335,9 @@ Re-run steps 5 to 7 to add a page the grant does not cover, or add it from the d
    ```
 
    The Workflow logs show one `[dry run] would DM` line per owner amplifier could reach, and a
-   `[dry run] would post:` line naming the owners it could not. An owner listed there whose Notion
-   page does have an email means the integration is missing the email capability, or that person
-   has no Slack account under that address. A dry run sends nothing, so it writes no pinged marker
+   `No DM for` line naming each owner it could not. An owner listed there whose Notion page does
+   have an email means the integration is missing the email capability, or that person has no
+   Slack account under that address. A dry run sends nothing, so it writes no pinged marker
    and the page still pings for real later.
 
 ### Manual trigger
@@ -382,16 +382,15 @@ render workflows start <slug>/amplifier.checkPosts --input='[{}]'
 `amplifier.pingOwners` takes the launch page and the note to link to. Its arguments and the run
 itself are in [Pinging one launch by hand](#pinging-one-launch-by-hand).
 
-| Field          | What it does                                                     |
-| -------------- | ---------------------------------------------------------------- |
-| `pageId`       | The Notion page to read. One of `pageId`, `url` or `draftId`.    |
-| `url`          | Permalink to the live post, or its Typefully share URL.          |
-| `draftId`      | Typefully draft id, when the URL is not to hand.                 |
-| `noteChannel`  | Channel id of the note the DM links to. Required, with `noteTs`. |
-| `noteTs`       | The note's `ts`. Without both of these the run DMs nobody.       |
-| `force`        | DM the owners again for a page already marked pinged.            |
-| `dryRun`       | Log each DM instead of sending it.                               |
-| `slackChannel` | Channel the unreachable-owner note goes to.                      |
+| Field         | What it does                                                     |
+| ------------- | ---------------------------------------------------------------- |
+| `pageId`      | The Notion page to read. One of `pageId`, `url` or `draftId`.    |
+| `url`         | Permalink to the live post, or its Typefully share URL.          |
+| `draftId`     | Typefully draft id, when the URL is not to hand.                 |
+| `noteChannel` | Channel id of the note the DM links to. Required, with `noteTs`. |
+| `noteTs`      | The note's `ts`. Without both of these the run DMs nobody.       |
+| `force`       | DM the owners again for a page already marked pinged.            |
+| `dryRun`      | Log each DM instead of sending it.                               |
 
 `dryRun: true` still reads the page, resolves the note's permalink and looks up each owner, so the
 logs say who would be DMed and who could not be found. It sends nothing and writes no marker.
@@ -613,7 +612,7 @@ task:
 1. Finds the launch page from the group's Typefully draft, described in [From a post URL to its owners](#from-a-post-url-to-its-owners).
 2. Stops when Key Value already records the page as pinged, so a re-announced draft DMs nobody twice. Pass `force: true` to send anyway.
 3. Takes a 5-minute lock on the page, so two runs cannot both DM.
-4. Reads the page through `notion.getPage` and pulls the owners and the title. A page with no Typefully URL, or with nobody in the owner property, is a skip rather than a failure — that is the usual state of a launch page.
+4. Reads the page through `notion.getPage` and pulls the owners and the title. A page with no Typefully URL, or with nobody in the owner property, is a skip rather than a failure, because that is the usual state of a launch page. A skip posts nothing and DMs nobody.
 5. Asks Slack for the note's permalink with `chat.getPermalink`. Without one it DMs nobody and writes no marker, because a DM naming a thread it cannot link to is worse than no DM.
 6. Turns each owner's Notion email into a Slack user id with `users.lookupByEmail`, opens a DM with `conversations.open`, and posts the DM through `amplifier.postNote`.
 7. Records the page as pinged for 30 days, then releases the lock.
@@ -635,10 +634,13 @@ database nobody configured does not cost the channel its announcement. Set
 `NOTION_DATABASE_ID` are both set.
 
 An owner with no Slack account under their Notion email gets no DM. Slack answers
-`users_not_found`, and the run posts one message to `SLACK_CHANNEL` naming the launch and that
-owner by their Notion name. It mentions nobody, because the whole reason it exists is that
-amplifier has no Slack user id for that person. The same note covers an owner whose Notion page
-carries no email at all. One owner failing never stops the others' DMs.
+`users_not_found`, and the run logs a `No DM for` line and lists that owner under `unreachable` in
+its result. Nothing goes to Slack about them, so a failed DM never notifies the channel. The same
+applies to an owner whose Notion page carries no email at all, and to a page with nobody in the
+owner property. One owner failing never stops the others' DMs.
+
+A page whose owners were all unreachable is left unmarked, so the next announcement of that draft
+tries the DMs again.
 
 `NOTION_TYPEFULLY_PROPERTY` and `NOTION_OWNERS_PROPERTY` name the two properties to read, because
 Notion keys a page's properties by their display name. The match is case-insensitive, and a

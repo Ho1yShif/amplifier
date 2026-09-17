@@ -194,25 +194,27 @@ describe("pingOwnersImpl", () => {
     expect(posts(calls)).toHaveLength(0);
   });
 
-  it("DMs the owner it can resolve and names the other one in the channel", async () => {
-    const { ctx, calls } = ctxFor({
-      "amplifier.lookupUser": ({ email }) =>
-        email === "sam@render.com" ? { error: "users_not_found" } : { userId: "U_dana" },
-    });
+  it("DMs the owner it can resolve and posts nothing about the other one", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { ctx, calls } = ctxFor({
+        "amplifier.lookupUser": ({ email }) =>
+          email === "sam@render.com" ? { error: "users_not_found" } : { userId: "U_dana" },
+      });
 
-    const result = await ping(ctx, { pageId: PAGE_ID });
+      const result = await ping(ctx, { pageId: PAGE_ID });
 
-    expect(result.pinged?.map((p) => p.email)).toEqual(["dana@render.com"]);
-    expect(result.unreachable?.[0]?.owner.name).toBe("Sam Okafor");
-    const [dm, note] = posts(calls);
-    expect(dm.channel).toBe("D_U_dana");
-    expect(note.channel).toBe("social");
-    expect(note.markdown).toContain("Sam Okafor");
-    expect(note.markdown).toContain("users_not_found");
-    expect(note.markdown).not.toContain("<@");
+      expect(result.pinged?.map((p) => p.email)).toEqual(["dana@render.com"]);
+      expect(result.unreachable?.[0]?.owner.name).toBe("Sam Okafor");
+      expect(posts(calls).map((p) => p.channel)).toEqual(["D_U_dana"]);
+      expect(errors.mock.calls[0]?.[0]).toMatch(/No DM for Sam Okafor.*users_not_found/);
+    } finally {
+      errors.mockRestore();
+    }
   });
 
-  it("names an owner Notion reports with no email without calling Slack about them", async () => {
+  it("logs an owner Notion reports with no email without calling Slack about them", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const page = {
       ...PAGE,
       properties: {
@@ -223,38 +225,31 @@ describe("pingOwnersImpl", () => {
         },
       },
     };
-    const { ctx, calls } = ctxFor({ "notion.getPage": () => ({ page }) });
+    try {
+      const { ctx, calls } = ctxFor({ "notion.getPage": () => ({ page }) });
 
-    const result = await ping(ctx, { pageId: PAGE_ID });
+      const result = await ping(ctx, { pageId: PAGE_ID });
 
-    expect(result.pinged).toEqual([]);
-    expect(result.unreachable?.[0]?.reason).toMatch(/user-email capability/);
-    expect(calls.some((c) => c.name === "amplifier.lookupUser")).toBe(false);
-    expect(posts(calls)).toHaveLength(1);
+      expect(result.pinged).toEqual([]);
+      expect(result.unreachable?.[0]?.reason).toMatch(/user-email capability/);
+      expect(calls.some((c) => c.name === "amplifier.lookupUser")).toBe(false);
+      expect(posts(calls)).toHaveLength(0);
+    } finally {
+      errors.mockRestore();
+    }
   });
 
-  it("marks the page pinged when only the channel note reached Slack", async () => {
-    const { ctx, calls } = ctxFor({
-      "amplifier.lookupUser": () => ({ error: "users_not_found" }),
-    });
-
-    await ping(ctx, { pageId: PAGE_ID });
-
-    expect(calls.some((c) => c.name === "kv.set")).toBe(true);
-  });
-
-  it("leaves the page unmarked when nothing reached Slack", async () => {
+  it("leaves the page unmarked when no owner could be DMed", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const { ctx, calls } = ctxFor({
         "amplifier.lookupUser": () => ({ error: "users_not_found" }),
       });
 
-      await ping(ctx, { pageId: PAGE_ID }, { SLACK_BOT_TOKEN: "xoxb-test" });
+      await ping(ctx, { pageId: PAGE_ID });
 
       expect(posts(calls)).toHaveLength(0);
       expect(calls.some((c) => c.name === "kv.set")).toBe(false);
-      expect(errors.mock.calls[0]?.[0]).toMatch(/No SLACK_CHANNEL/);
     } finally {
       errors.mockRestore();
     }
@@ -268,12 +263,17 @@ describe("pingOwnersImpl", () => {
       },
     });
 
-    const result = await ping(ctx, { pageId: PAGE_ID });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await ping(ctx, { pageId: PAGE_ID });
 
-    expect(result.pinged?.map((p) => p.email)).toEqual(["dana@render.com"]);
-    expect(result.unreachable?.[0]?.reason).toMatch(/channel_not_found/);
-    expect(calls.some((c) => c.name === "kv.set")).toBe(true);
-    expect(calls.at(-1)?.name).toBe("kv.unlock");
+      expect(result.pinged?.map((p) => p.email)).toEqual(["dana@render.com"]);
+      expect(result.unreachable?.[0]?.reason).toMatch(/channel_not_found/);
+      expect(calls.some((c) => c.name === "kv.set")).toBe(true);
+      expect(calls.at(-1)?.name).toBe("kv.unlock");
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   it("releases the lock when the page fetch throws", async () => {
