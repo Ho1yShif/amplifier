@@ -238,6 +238,67 @@ describe("announceGroups, the owner DMs", () => {
   });
 });
 
+describe("announceGroups, the repost reminder", () => {
+  const withRepost = { ...env, AMPLIFIER_REPOST_CHANNEL: "#amplify-wider" };
+
+  /** A fake dispatch, recording the task and args announce asked for. */
+  function fakeStartRun() {
+    const started: { task: string; args: unknown[] }[] = [];
+    return {
+      started,
+      startRun: async (task: string, args: unknown[]) => {
+        started.push({ task, args });
+      },
+    };
+  }
+
+  it("starts one run with the note's channel, ts, key and due time", async () => {
+    const { ctx } = taskCtx(handlers());
+    const { started, startRun } = fakeStartRun();
+    const before = Date.now();
+    await announceGroups(ctx, crossPost, loadConfig({}, withRepost), "run-1", { startRun });
+
+    expect(started).toHaveLength(1);
+    expect(started[0]?.task).toBe("amplifier.remindRepost");
+    const [arg] = started[0]?.args as [
+      { channel: string; messageTs: string; dueAtMs: number; noteKey: string },
+    ];
+    expect(arg.channel).toBe("C1");
+    expect(arg.messageTs).toBe("17580000.001");
+    expect(arg.noteKey).toBe(noteKey(["1"]));
+    expect(arg.dueAtMs).toBeGreaterThanOrEqual(before + 30 * 60_000);
+  });
+
+  it("leaves the announcement delivered when the dispatch throws", async () => {
+    const { ctx } = taskCtx(handlers());
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { notes } = await announceGroups(ctx, crossPost, loadConfig({}, withRepost), "run-1", {
+        startRun: () => Promise.reject(new Error("render api down")),
+      });
+      expect(notes[0]?.delivered).toBe(true);
+      expect(error.mock.calls[0]?.[0]).toMatch(/repost reminder run did not start/);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("starts nothing with AMPLIFIER_REMINDER_MINUTES at 0", async () => {
+    const { ctx } = taskCtx(handlers());
+    const { started, startRun } = fakeStartRun();
+    const off = { ...withRepost, AMPLIFIER_REMINDER_MINUTES: "0" };
+    await announceGroups(ctx, crossPost, loadConfig({}, off), "run-1", { startRun });
+    expect(started).toEqual([]);
+  });
+
+  it("starts nothing without a repost channel, because there is nothing to ask for", async () => {
+    const { ctx } = taskCtx(handlers());
+    const { started, startRun } = fakeStartRun();
+    await announceGroups(ctx, crossPost, loadConfig({}, env), "run-1", { startRun });
+    expect(started).toEqual([]);
+  });
+});
+
 describe("announceGroups, dry run", () => {
   it("logs the parent and every reply in order and posts nothing", async () => {
     const { ctx, calls } = taskCtx(handlers());
@@ -274,6 +335,23 @@ describe("announceGroups, dry run", () => {
       const withRepost = { ...env, AMPLIFIER_REPOST_CHANNEL: "#amplify-wider" };
       await announceGroups(ctx, crossPost, loadConfig({ dryRun: true }, withRepost), "run-1");
       expect(calls.some((c) => c.name === "kv.set")).toBe(false);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("starts no reminder run, because there is no posted note to remind about", async () => {
+    const { ctx } = taskCtx(handlers());
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const started: string[] = [];
+    try {
+      const withRepost = { ...env, AMPLIFIER_REPOST_CHANNEL: "#amplify-wider" };
+      await announceGroups(ctx, crossPost, loadConfig({ dryRun: true }, withRepost), "run-1", {
+        startRun: async (task: string) => {
+          started.push(task);
+        },
+      });
+      expect(started).toEqual([]);
     } finally {
       log.mockRestore();
     }

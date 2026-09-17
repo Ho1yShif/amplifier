@@ -42,7 +42,7 @@ export function verifySlackSignature(
 export interface RepostClick {
   /** Channel the clicked note is in. */
   channel: string;
-  /** The clicked parent message's `ts`. */
+  /** The `ts` of the note the click is about, which is the thread's parent. */
   messageTs: string;
   /** Slack id of the person who clicked. */
   userId: string;
@@ -57,6 +57,11 @@ export interface RepostClick {
  *
  * Anything whose first action is not the Repost button maps to null, so another
  * interactive element added to the app later does not start a repost.
+ *
+ * `messageTs` is the clicked message's `thread_ts`, falling back to its own
+ * `ts`. The repost reminder is a reply carrying its own Repost button, and a
+ * click on it is about the note at the top of the thread: that is the message
+ * the reaction, the "Reposted by" reply and the reposted marker belong on.
  */
 export function parseRepostClick(payload: unknown): RepostClick | null {
   if (typeof payload !== "object" || payload === null) return null;
@@ -66,7 +71,8 @@ export function parseRepostClick(payload: unknown): RepostClick | null {
   if (!action || action["action_id"] !== REPOST_ACTION_ID) return null;
 
   const channel = nonEmptyString((p["channel"] as Record<string, unknown> | undefined)?.["id"]);
-  const messageTs = nonEmptyString((p["message"] as Record<string, unknown> | undefined)?.["ts"]);
+  const message = p["message"] as Record<string, unknown> | undefined;
+  const messageTs = nonEmptyString(message?.["thread_ts"]) ?? nonEmptyString(message?.["ts"]);
   const userId = nonEmptyString((p["user"] as Record<string, unknown> | undefined)?.["id"]);
   const noteKey = nonEmptyString(action["value"]);
   const responseUrl = nonEmptyString(p["response_url"]);

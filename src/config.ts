@@ -1,5 +1,6 @@
 import { DEFAULT_PING_ASK } from "./amplifier/pingTemplate.js";
-import { MAX_SETTLE_MINUTES } from "./amplifier/retry.js";
+import { DEFAULT_REMINDER_TEXT } from "./amplifier/remindTemplate.js";
+import { MAX_REMINDER_MINUTES, MAX_SETTLE_MINUTES } from "./amplifier/retry.js";
 import { DEFAULT_CALL_TO_ACTION } from "./amplifier/template.js";
 import { DEFAULT_SUMMARY_MODEL } from "./summary/model.js";
 
@@ -54,6 +55,10 @@ export interface AmplifierConfig {
   pingAsk: string;
   /** Whether an announcement also DMs the launch's owners. */
   pingOwners: boolean;
+  /** Minutes between a note and its repost reminder. 0 means no reminder. */
+  reminderMinutes: number;
+  /** The reminder's text, with CHANNEL_PLACEHOLDER for the repost channel. */
+  reminderText: string;
 }
 
 /**
@@ -182,6 +187,17 @@ export function loadConfig(
       env.AMPLIFIER_PING_OWNERS,
       notionDatabaseId !== undefined && optional(env.NOTION_TOKEN) !== undefined,
     ),
+    // Half an hour, because a note nobody has reposted within the first hour
+    // has usually been scrolled past. The maximum is the timeout on
+    // amplifier.remindRepost, which spends the delay as a sleep, so a larger
+    // value would kill the run before it checks anything.
+    reminderMinutes: whole(
+      "AMPLIFIER_REMINDER_MINUTES",
+      undefined,
+      env.AMPLIFIER_REMINDER_MINUTES,
+      { fallback: 30, min: 0, max: MAX_REMINDER_MINUTES },
+    ),
+    reminderText: text(undefined, env.AMPLIFIER_REMINDER_TEXT, DEFAULT_REMINDER_TEXT),
   };
 }
 

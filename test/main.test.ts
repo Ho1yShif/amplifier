@@ -18,6 +18,10 @@ describe("task registration", () => {
     expect(names).toContain("amplifier.announcePost");
   });
 
+  it("registers the reminder, which a run starts by name", () => {
+    expect(names).toContain("amplifier.remindRepost");
+  });
+
   it("registers the tasks they compose", () => {
     expect(names).toEqual(
       expect.arrayContaining([

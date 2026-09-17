@@ -9,12 +9,7 @@ import { messageLink } from "../slack/permalink.js";
 import { postNote } from "../slack/postNote.js";
 import { resolveLaunchPageId } from "./launchPage.js";
 import { pingedKey, pingInflightKey } from "./pinged.js";
-import {
-  ownerLabel,
-  renderPingDm,
-  renderUnreachableNote,
-  type UnreachableOwner,
-} from "./pingTemplate.js";
+import { ownerLabel, renderPingDm } from "./pingTemplate.js";
 import { INFLIGHT_TTL_SECONDS, releaseClaim, runToken } from "./seen.js";
 
 export interface PingOwnersInput {
@@ -37,8 +32,13 @@ export interface PingOwnersInput {
   /** Ping a page the marker already records. Re-sends the DMs. */
   force?: boolean;
   dryRun?: boolean;
-  /** Channel the unreachable-owner note goes to. Defaults to SLACK_CHANNEL. */
-  slackChannel?: string;
+}
+
+/** One owner the run could not DM, and the reason in words. */
+export interface UnreachableOwner {
+  owner: Owner;
+  /** Why no DM went out, such as `no Slack account for name@render.com`. */
+  reason: string;
 }
 
 /** One owner the run DM'd. */
@@ -56,7 +56,7 @@ export interface PingOwnersResult {
   skipped?: "no-url" | "no-owners" | "other-database" | "pinged" | "claimed" | "no-thread";
   /** One entry per owner a DM was addressed to. */
   pinged?: PingedOwner[];
-  /** Owners with no DM, and why. Named in the channel note. */
+  /** Owners with no DM, and why. Logged, never posted to Slack. */
   unreachable?: UnreachableOwner[];
 }
 
@@ -110,8 +110,8 @@ async function pingOwner(
     return pingedOwner(owner, email, posted.delivered);
   } catch (err) {
     // The DM is already past SLACK_RETRY, so this is a lasting failure for one
-    // person. Reported in the channel rather than thrown, so the owners who
-    // did get a DM are not DM'd twice by the next delivery.
+    // person. Logged rather than thrown, so the owners who did get a DM are
+    // not DM'd twice by the next delivery.
     const detail = err instanceof Error ? err.message : String(err);
     return { owner, reason: `the DM to ${email} failed: ${detail}` };
   }
@@ -157,42 +157,14 @@ function isPinged(outcome: PingedOwner | UnreachableOwner): outcome is PingedOwn
 }
 
 /**
- * Post the note naming owners nobody could DM.
+ * Log the owners nobody could DM.
  *
- * Returns whether Slack accepted it, because the marker is written once
- * anything reached Slack. A failure is logged rather than thrown: the DMs that
- * did go out are the run's real work.
+ * The reasons stay in the logs and in the run's result, because a note in the
+ * channel notifies everyone in it about a DM that did not send.
  */
-async function postUnreachable(
-  ctx: TaskContext,
-  launch: Launch,
-  unreachable: UnreachableOwner[],
-  config: AmplifierConfig,
-): Promise<boolean> {
-  const channel = config.slackChannel;
-  if (!channel) {
-    console.error(
-      `[amplifier] No SLACK_CHANNEL, so nobody hears that ${unreachable.length} owner(s) of ` +
-        `page ${launch.pageId} got no DM: ${unreachable.map((u) => u.reason).join("; ")}`,
-    );
-    return false;
-  }
-
-  const note = renderUnreachableNote(launch, unreachable, { channel });
-  if (config.dryRun) {
-    console.log(`[dry run] would post:\n${note.markdown}`);
-    return false;
-  }
-
-  try {
-    const posted = await ctx.run(postNote, note);
-    return posted.delivered;
-  } catch (err) {
-    console.error(
-      `[amplifier] Could not post the unreachable-owner note for page ${launch.pageId}.`,
-      err,
-    );
-    return false;
+function logUnreachable(pageId: string, unreachable: UnreachableOwner[]): void {
+  for (const { owner, reason } of unreachable) {
+    console.error(`[amplifier] No DM for ${ownerLabel(owner)} on page ${pageId}: ${reason}`);
   }
 }
 
@@ -209,13 +181,7 @@ export async function pingOwnersImpl(
     );
   }
 
-  const config = loadConfig(
-    {
-      ...(input.dryRun !== undefined ? { dryRun: input.dryRun } : {}),
-      ...(input.slackChannel !== undefined ? { slackChannel: input.slackChannel } : {}),
-    },
-    env,
-  );
+  const config = loadConfig(input.dryRun !== undefined ? { dryRun: input.dryRun } : {}, env);
 
   // A URL reaches the page the long way round: Typefully turns the permalink
   // into the draft's share URL, and that share URL is the link on the page.
@@ -288,15 +254,13 @@ export async function pingOwnersImpl(
       else unreachable.push(result);
     }
 
-    let accepted = pinged.some((p) => p.delivered);
-    if (unreachable.length > 0) {
-      const posted = await postUnreachable(ctx, outcome, unreachable, config);
-      accepted = accepted || posted;
-    }
-    // Only after Slack accepted something. The marker is separate from the
-    // lock, so a lock left behind by a crashed run never reads as a ping that
-    // went out.
-    if (accepted) {
+    logUnreachable(pageId, unreachable);
+
+    // Only after Slack accepted a DM, so a page whose owners were all
+    // unreachable is pinged again by the next announcement. The marker is
+    // separate from the lock, so a lock left behind by a crashed run never
+    // reads as a ping that went out.
+    if (pinged.some((p) => p.delivered)) {
       await ctx.run(kvSet, { key: marker, value: "pinged", ttlSeconds: config.seenTtlSeconds });
     }
 

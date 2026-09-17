@@ -4,6 +4,7 @@ import type { AmplifierConfig } from "../config.js";
 import { postNote } from "../slack/postNote.js";
 import { isSummary, summarizeGroup, type SummaryOutcome } from "../summary/summarize.js";
 import type { Platform } from "../typefully/types.js";
+import { startRun as defaultStartRun, type StartRun } from "./dispatchRun.js";
 import type { PostGroup } from "./group.js";
 import { pingOwners } from "./pingOwners.js";
 import { claimGroup, isClaimed, markAnnounced, releaseGroup } from "./seen.js";
@@ -31,6 +32,8 @@ export interface NoteResult {
 export interface AnnounceOptions {
   /** Platforms to name as dropped, and the draft whose note names them. */
   droppedFor?: { draftId: string; platforms: Platform[] };
+  /** Starts the repost reminder's own run. Defaults to the Render API dispatch. */
+  startRun?: StartRun;
 }
 
 export interface AnnounceResult {
@@ -127,6 +130,7 @@ export async function announceGroups(
         if (config.pingOwners) {
           await pingLaunchOwners(ctx, group, noteChannel, threadTs);
         }
+        await scheduleReminder(config, noteChannel ?? parent.channel, threadTs, key, opts.startRun);
       }
     }
     await releaseGroup(ctx, claims);
@@ -257,6 +261,48 @@ async function pingLaunchOwners(
         `in the channel. Set AMPLIFIER_PING_OWNERS=false to stop trying.`,
       err,
     );
+  }
+}
+
+/**
+ * Start the run that reminds the channel if nobody reposts this note.
+ *
+ * Its own run, because the delay is a 30-minute sleep inside
+ * `amplifier.remindRepost`. Holding that sleep here would mean cancelling or
+ * redeploying the announce path takes the reminder with it.
+ *
+ * Caught rather than thrown: the note is already in the channel, so a failed
+ * dispatch must not fail the announce run or re-post the note.
+ *
+ * `channel` is the id Slack echoed back, falling back to the configured name.
+ * Only the reminder's own reply goes there. Both markers are keyed by the note
+ * key, which `amplifier.repost` has too, so the two paths cannot disagree about
+ * which channel a note is in.
+ *
+ * The reminder carries its own Repost button, so it needs the same note key the
+ * parent's button holds. The stored note lives as long as the announced marker,
+ * so the key still resolves half an hour later.
+ */
+async function scheduleReminder(
+  config: AmplifierConfig,
+  channel: string | undefined,
+  threadTs: string | undefined,
+  noteKey: string,
+  start: StartRun = defaultStartRun,
+): Promise<void> {
+  if (config.reminderMinutes === 0 || !config.repostChannel) return;
+  if (channel === undefined || threadTs === undefined) return;
+  try {
+    await start("amplifier.remindRepost", [
+      {
+        channel,
+        messageTs: threadTs,
+        dueAtMs: Date.now() + config.reminderMinutes * 60_000,
+        noteKey,
+      },
+    ]);
+  } catch (err) {
+    console.error("[amplifier] The repost reminder run did not start.", err);
   }
 }
 

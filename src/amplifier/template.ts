@@ -99,7 +99,7 @@ function fallbackBlocks(group: PostGroup, opts: RenderNoteOptions, lead: string)
 }
 
 /** A mrkdwn section block, the only block shape these notes use for text. */
-function section(text: string): SlackBlock {
+export function section(text: string): SlackBlock {
   return { type: "section", text: { type: "mrkdwn", text } };
 }
 
@@ -110,7 +110,7 @@ function section(text: string): SlackBlock {
  * repost task everything it needs to rebuild the thread without reading the
  * thread back from Slack.
  */
-function repostBlock(repostChannel: string, noteKey: string): SlackBlock {
+export function repostBlock(repostChannel: string, noteKey: string): SlackBlock {
   return {
     type: "actions",
     elements: [
