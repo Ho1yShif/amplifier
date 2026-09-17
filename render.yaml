@@ -60,6 +60,12 @@ projects:
           # this Blueprint references this group: the receiver only starts runs.
           # Attach it to the Workflow service in the dashboard. A Blueprint sync
           # leaves the keys added there by hand alone.
+          #
+          # RENDER_API_KEY and WORKFLOW_SLUG belong in this group too, because
+          # the announce path starts the repost reminder's run through the Render
+          # API. A key is workspace-wide and a slug is deploy-specific, and
+          # `sync: false` is ignored inside an env var group, so both are added
+          # by hand. README, Deployment step 4, lists them.
           - name: amplifier-workflow
             envVars:
               - key: AMPLIFIER_SUMMARY_MODEL

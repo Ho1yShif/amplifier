@@ -24,7 +24,7 @@ exact peer dependency: one physical copy means every task registers into the sam
 
 ## Amplifier's own tasks
 
-Six tasks are entry points, started from outside the workflow. The rest are composed from them.
+Seven tasks are entry points, started from outside the workflow. The rest are composed from them.
 
 | Task                      | Started by                                   | Retry                |
 | ------------------------- | -------------------------------------------- | -------------------- |
@@ -33,6 +33,7 @@ Six tasks are entry points, started from outside the workflow. The rest are comp
 | `amplifier.announcePost`  | By hand, with a permalink or draft id        | none                 |
 | `amplifier.pingOwners`    | `announceGroups`, and by hand with a page id | none                 |
 | `amplifier.repost`        | A Repost button click in Slack               | `REPOST_RETRY`       |
+| `amplifier.remindRepost`  | `announceGroups`, as its own run             | `REMIND_RETRY`       |
 | `amplifier.saveUserToken` | The Slack OAuth callback                     | none                 |
 | `amplifier.postNote`      | Every task above that posts to Slack         | `SLACK_RETRY`        |
 | `amplifier.lookupUser`    | `pingOwners`, per owner                      | `SLACK_RETRY`        |
@@ -43,7 +44,7 @@ Six tasks are entry points, started from outside the workflow. The rest are comp
 | `notion.getPage`          | `pingOwners`, to read the owners             | `NOTION_RETRY`       |
 | `ping`                    | By hand, to check the registry loaded        | none                 |
 
-`src/main.ts` imports the six entry modules for the side effect. Each one calls `task()` at load, so
+`src/main.ts` imports the seven entry modules for the side effect. Each one calls `task()` at load, so
 the import registers that task and, through its own imports, every vendor task it calls. A new entry
 task that is not imported there does not exist on the deploy. To confirm the registry loaded, run
 `render workflows start <slug>/ping --input='[]'` and expect `pong`.
@@ -80,6 +81,24 @@ is how amplifier waits for the second platform. Two things depend on that budget
 `REPOST_RETRY` is short — 1s, 2s, 4s, 8s — because a person clicked the button and is waiting for the
 ephemeral answer. A long backoff reads as a dead button. It can only fire before the parent message is
 posted; everything after that either swallows its own failure or answers the clicker and returns.
+
+`REMIND_RETRY` is for crash recovery. The reminder's delay is a `setTimeout` inside
+`amplifier.remindRepost`, because `RunSubtaskRequest` in `@renderinc/sdk` 1.0.0 has no delay field and
+a started run begins at once. A deploy during the sleep kills the task, and the resumed attempt waits
+out what is left of `dueAtMs` rather than the whole delay again. `MAX_REMINDER_MINUTES` in
+`src/amplifier/retry.ts` caps `AMPLIFIER_REMINDER_MINUTES` against `REMIND_TIMEOUT_SECONDS`, because a
+delay past the task's timeout kills the run before it reads either marker.
+
+The reminder carries its own Repost button, holding the same note key as the parent's, so
+`parseRepostClick` reads the clicked message's `thread_ts` and falls back to its `ts`. A click on
+the reminder is about the note at the top of the thread, which is where the reaction, the
+"Reposted by" reply and the reposted marker belong.
+
+`announceGroups` starts `amplifier.remindRepost` as its own run rather than as a subtask, so
+cancelling or redeploying the announce path does not take the reminder with it. `startRun` in
+`src/amplifier/dispatchRun.ts` makes that call, which means the Workflow service needs `RENDER_API_KEY`
+and `WORKFLOW_SLUG` of its own. Without them `startRun` logs and returns null, which is what keeps
+`pnpm local:run` off the Render API.
 
 `amplifier.announcePost` and `amplifier.saveUserToken` have no retry policy on purpose. A human is
 watching the first one, and an OAuth code is single-use, so a retry after a successful exchange fails

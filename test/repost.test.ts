@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { repostedKey } from "../src/amplifier/remindRepost.js";
 import { repostImpl, type RepostInput } from "../src/amplifier/repost.js";
+import { loadConfig } from "../src/config.js";
 import { noteKey, type StoredNote } from "../src/amplifier/storedNote.js";
 import { userTokenKey } from "../src/slack/oauth.js";
 import { renderChildren, renderParent } from "../src/amplifier/template.js";
@@ -112,6 +114,36 @@ describe("repostImpl, the happy path", () => {
       false,
     );
     expect(parent?.blocks).toHaveLength(1);
+  });
+
+  it("records the note as reposted, so it gets no reminder", async () => {
+    const { fetchImpl } = collectReplies();
+    const { ctx, calls } = taskCtx(handlers());
+    const config = loadConfig({}, env);
+    await repostImpl(ctx, input, env, { fetchImpl, now: () => NOW });
+
+    expect(
+      calls.find((c) => c.name === "kv.set" && c.input.key === repostedKey("C1", "17580000.001"))
+        ?.input,
+    ).toEqual({
+      key: repostedKey("C1", "17580000.001"),
+      value: "reposted",
+      ttlSeconds: config.seenTtlSeconds,
+    });
+  });
+
+  it("still reposts when the reposted marker cannot be written", async () => {
+    const { texts, fetchImpl } = collectReplies();
+    const { ctx } = taskCtx(
+      handlers({
+        "kv.set": () => {
+          throw new Error("kv down");
+        },
+      }),
+    );
+    const result = await repostImpl(ctx, input, env, { fetchImpl, now: () => NOW });
+    expect(result.reposted).toBe(true);
+    expect(texts).toEqual(["Reposted to #amplify-wider."]);
   });
 
   it("reacts to the source parent with the bot token", async () => {

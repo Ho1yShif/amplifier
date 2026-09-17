@@ -22,6 +22,31 @@ export const REPOST_RETRY: Retry = {
   backoffScaling: 2,
 };
 
+/**
+ * Retry policy for amplifier.remindRepost. Backoff over 10s, 20s.
+ *
+ * For crash recovery only. A deploy during the sleep kills the task, and the
+ * resumed attempt waits out what is left of `dueAtMs` rather than the whole
+ * delay again.
+ */
+export const REMIND_RETRY: Retry = {
+  maxRetries: 2,
+  waitDurationMs: 10_000,
+  backoffScaling: 2,
+};
+
+/** Wall clock one amplifier.remindRepost run may spend, its sleep included. */
+export const REMIND_TIMEOUT_SECONDS = 2_400;
+
+/**
+ * Widest AMPLIFIER_REMINDER_MINUTES that can still produce a reminder.
+ *
+ * The delay is a sleep inside the task, so a delay past the task's timeout
+ * kills the run before it reads either marker. The 5-minute margin covers the
+ * Key Value reads and the Slack post that follow the sleep.
+ */
+export const MAX_REMINDER_MINUTES = REMIND_TIMEOUT_SECONDS / 60 - 5;
+
 /** Total backoff a retry policy spends, in minutes. */
 function budgetMinutes({ maxRetries, waitDurationMs, backoffScaling }: Retry): number {
   let waitMs = 0;

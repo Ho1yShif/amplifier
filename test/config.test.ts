@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MAX_SETTLE_MINUTES } from "../src/amplifier/retry.js";
+import { MAX_REMINDER_MINUTES, MAX_SETTLE_MINUTES } from "../src/amplifier/retry.js";
+import { DEFAULT_REMINDER_TEXT } from "../src/amplifier/remindTemplate.js";
 import { DEFAULT_PING_ASK } from "../src/amplifier/pingTemplate.js";
 import { DEFAULT_CALL_TO_ACTION } from "../src/amplifier/template.js";
 import {
@@ -27,6 +28,8 @@ describe("loadConfig", () => {
       notionOwnersProperty: DEFAULT_OWNERS_PROPERTY,
       pingAsk: DEFAULT_PING_ASK,
       pingOwners: false,
+      reminderMinutes: 30,
+      reminderText: DEFAULT_REMINDER_TEXT,
     });
   });
 
@@ -52,6 +55,8 @@ describe("loadConfig", () => {
         NOTION_DATABASE_ID: "7dabf9f3eeb64800bdf6b919611ff771",
         NOTION_TOKEN: "ntn_test",
         AMPLIFIER_PING_ASK: "Amplify it.",
+        AMPLIFIER_REMINDER_MINUTES: "15",
+        AMPLIFIER_REMINDER_TEXT: "Nobody has shared this in #{channel} yet.",
       },
     );
     expect(config).toEqual({
@@ -74,6 +79,8 @@ describe("loadConfig", () => {
       notionDatabaseId: "7dabf9f3eeb64800bdf6b919611ff771",
       pingAsk: "Amplify it.",
       pingOwners: true,
+      reminderMinutes: 15,
+      reminderText: "Nobody has shared this in #{channel} yet.",
     });
   });
 
@@ -184,6 +191,27 @@ describe("loadConfig", () => {
       loadConfig({}, { AMPLIFIER_SETTLE_MINUTES: String(MAX_SETTLE_MINUTES + 1) }),
     ).toThrow(
       `AMPLIFIER_SETTLE_MINUTES must be a whole number between 0 and ${MAX_SETTLE_MINUTES}`,
+    );
+  });
+
+  it("accepts a reminder delay of 0, which turns reminders off", () => {
+    expect(loadConfig({}, { AMPLIFIER_REMINDER_MINUTES: "0" }).reminderMinutes).toBe(0);
+  });
+
+  it("caps the reminder delay at the timeout on amplifier.remindRepost", () => {
+    expect(
+      loadConfig({}, { AMPLIFIER_REMINDER_MINUTES: String(MAX_REMINDER_MINUTES) }).reminderMinutes,
+    ).toBe(MAX_REMINDER_MINUTES);
+    expect(() =>
+      loadConfig({}, { AMPLIFIER_REMINDER_MINUTES: String(MAX_REMINDER_MINUTES + 1) }),
+    ).toThrow(
+      `AMPLIFIER_REMINDER_MINUTES must be a whole number between 0 and ${MAX_REMINDER_MINUTES}`,
+    );
+  });
+
+  it("treats a blank reminder text as unset", () => {
+    expect(loadConfig({}, { AMPLIFIER_REMINDER_TEXT: "  " }).reminderText).toBe(
+      DEFAULT_REMINDER_TEXT,
     );
   });
 

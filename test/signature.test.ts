@@ -109,6 +109,14 @@ describe("parseRepostClick", () => {
     });
   });
 
+  it("takes the thread's parent when the click is on a reply", () => {
+    const onReminder = {
+      ...payload,
+      message: { ts: "17580000.009", thread_ts: "17580000.001" },
+    };
+    expect(parseRepostClick(onReminder)?.messageTs).toBe("17580000.001");
+  });
+
   it("ignores another action added to the app later", () => {
     const other = { ...payload, actions: [{ action_id: "something_else", value: "x" }] };
     expect(parseRepostClick(other)).toBeNull();

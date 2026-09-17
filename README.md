@@ -34,10 +34,11 @@ Workflows yet. Read [Deployment](#deployment) first; the button is step 5.
   6  claimGroup, one kv.lock per draft ───────────┼──▶ amplifier-kv
   7  amplifier.postNote, parent then replies ─────┼──▶ Slack #amplify
   8  markAnnounced, then releaseGroup ────────────┼──▶ amplifier-kv
-  9  amplifier.pingOwners ────────────────────────┴──▶ Notion API, Slack DMs
+  9  amplifier.pingOwners ────────────────────────┤──▶ Notion API, Slack DMs
+ 10  start amplifier.remindRepost, its own run ───┴──▶ Render API
 ```
 
-Steps 5 through 9 run once per group.
+Steps 5 through 10 run once per group.
 
 Typefully posts to the `amplifier-webhook` service when a draft publishes. The receiver verifies the delivery and starts `amplifier.handleEvent` on the amplifier Workflow service, which retries at 1m, 2m, 4m, and 8m while a platform is still publishing. That task:
 
@@ -50,6 +51,7 @@ Typefully posts to the `amplifier-webhook` service when a draft publishes. The r
 7. Posts the note through `amplifier.postNote`: a parent message, then one threaded reply per platform link.
 8. Records each draft as announced for 30 days.
 9. Runs `amplifier.pingOwners`, which finds the launch page in Notion and DMs each owner the link to the note it just posted. See [Pinging a launch's owners](#pinging-a-launchs-owners).
+10. Starts `amplifier.remindRepost` as its own run, which sleeps 30 minutes and then reminds the channel if nobody reposted the note. See [Repost reminders](#repost-reminders).
 
 `amplifier.postNote` wraps the vendor's `postMessageImpl` and adds `unfurl_links: false`, `unfurl_media: false` and, on a reply, `thread_ts` to the request body. `@render-lab/tasks-slack` 0.3.0 sends none of them and exposes no option for them. The wrapper can go away once the vendor does.
 
@@ -156,10 +158,14 @@ region Oregon, built from `main`.
    | `amplifier-workflow` | `SLACK_BOT_TOKEN`         | See below                                              |
    | `amplifier-workflow` | `SLACK_CHANNEL`           | The channel the notes go to                            |
    | `amplifier-workflow` | `NOTION_TOKEN`            | Integration token, for the owner DMs                   |
+   | `amplifier-workflow` | `RENDER_API_KEY`          | The same key, for the repost reminder's own run        |
+   | `amplifier-workflow` | `WORKFLOW_SLUG`           | The slug from step 2, for the same reason              |
 
    For Slack, add `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`. Both are required. To turn the Repost button on, also add `AMPLIFIER_REPOST_CHANNEL`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` and `SLACK_SIGNING_SECRET` to `amplifier-workflow`, and `SLACK_CLIENT_ID` and `SLACK_SIGNING_SECRET` to `amplifier-triggers`. All four Slack values are on the app's Basic Information page. `AMPLIFIER_PUBLIC_URL` comes later, in step 6, because it is the receiver's own URL. See [Reposting](#reposting).
 
    `NOTION_TOKEN` is only needed for the owner DMs; leave it out if you only want the announce path. See [Pinging a launch's owners](#pinging-a-launchs-owners).
+
+   `RENDER_API_KEY` and `WORKFLOW_SLUG` appear twice, once per group. The receiver uses them to start a run from a webhook delivery, and the Workflow service uses them to start the repost reminder's own run. Leave them out of `amplifier-workflow` if you do not want reminders; a run then logs that it skipped the dispatch and the note gets no reminder. See [Repost reminders](#repost-reminders).
 
    `TYPEFULLY_WEBHOOK_SECRET` belongs in `amplifier-triggers` too, but Typefully does not show it until step 11, so leave it out for now. Leave `AMPLIFIER_SUMMARY_MODEL` out as well; `render.yaml` gives it a literal value and the apply adds it to `amplifier-workflow`. `REDIS_URL` comes later, in step 9, because `amplifier-kv` does not exist yet. Nothing here can use `generateValue`; every value is one you paste in.
 
@@ -547,6 +553,36 @@ too old to repost.
 
 Unset `AMPLIFIER_REPOST_CHANNEL` to turn all of this off: no button, no stored note.
 
+## Repost reminders
+
+Thirty minutes after a note goes out, amplifier checks whether anybody reposted it. If nobody
+has, it replies in the thread and the reply also shows in the channel, so the ask is visible to
+people who never opened the thread. The reminder carries its own Repost button, so it can be
+acted on where it is read. `AMPLIFIER_REMINDER_MINUTES` sets the delay and `0` turns reminders
+off. `AMPLIFIER_REMINDER_TEXT` sets the wording, and `{channel}` in it is replaced with
+`AMPLIFIER_REPOST_CHANNEL`.
+
+A click on the reminder's button behaves the same as a click on the note's. The receiver reads
+the clicked message's `thread_ts`, so the reaction, the "Reposted by" reply and the reposted
+marker all land on the note at the top of the thread.
+
+Reminders need `AMPLIFIER_REPOST_CHANNEL`, because the reminder asks for the button in that
+channel.
+
+The check runs as its own workflow run, started through the Render API, so the Workflow service
+needs `RENDER_API_KEY` and `WORKFLOW_SLUG` of its own on top of the ones the receiver has. The
+delay is a sleep inside `amplifier.remindRepost`: the SDK has no way to schedule a run for later,
+and holding the sleep in the announce run would mean a cancel or a deploy took the reminder with
+it. Without those two variables a run logs that it skipped the dispatch, and the note gets no
+reminder.
+
+Whether a note was reposted is read from a Key Value marker `amplifier.repost` writes. Reading
+the note's reactions instead would need a `reactions:read` scope and a raw Slack call. So a repost
+done by hand, without the button, still gets a reminder. Anyone can delete the reminder.
+
+A note gets one reminder. The reminded marker is written before the reply is posted, so two runs
+for the same note produce one reply.
+
 ## Pinging a launch's owners
 
 The note goes to the whole channel. The launch's owners get a DM as well, pointing at the thread
@@ -684,7 +720,11 @@ A manual run takes a permalink as `url` instead, or the draft id as `draftId`.
 | `NOTION_BASE_URL`                | Notion                      | —     | Local stub only. The token is sent to whatever host this names, so only a loopback address is accepted. Leave it unset in production.                                                                                                                |
 | `AMPLIFIER_PING_ASK`             | see below                   | —     | The ask on the first line of an owner's DM.                                                                                                                                                                                                          |
 | `AMPLIFIER_PING_OWNERS`          | see Notes                   | —     | Whether an announcement also DMs the launch's owners. On when `NOTION_TOKEN` and `NOTION_DATABASE_ID` are both set, off otherwise. Set it to `false` to turn the DMs off, or `true` to force them on.                                                |
-| `AMPLIFIER_REPOST_CHANNEL`       | —                           | —     | Channel the Repost button posts to. Unset means no button and no stored note. See [Reposting](#reposting).                                                                                                                                           |
+| `AMPLIFIER_REMINDER_MINUTES`     | `30`                        | 0–35  | How long after a note amplifier reminds the channel that nobody reposted it. `0` turns reminders off. The maximum is the timeout on `amplifier.remindRepost`, which spends the delay as a sleep. See [Repost reminders](#repost-reminders).          |
+| `AMPLIFIER_REMINDER_TEXT`        | see below                   | —     | The reminder's wording. `{channel}` in it is replaced with `AMPLIFIER_REPOST_CHANNEL`.                                                                                                                                                               |
+| `RENDER_API_KEY`                 | —                           | —     | Required for reminders. Starts the reminder's own run. The same key the receiver has.                                                                                                                                                                |
+| `WORKFLOW_SLUG`                  | —                           | —     | Required for reminders. The Workflow service's own slug, which it starts the reminder run against.                                                                                                                                                   |
+| `AMPLIFIER_REPOST_CHANNEL`       | —                           | —     | Channel the Repost button posts to. Unset means no button and no stored note. Also required for reminders. See [Reposting](#reposting).                                                                                                              |
 | `AMPLIFIER_REPOST_EMOJI`         | `white_check_mark`          | —     | Reaction added to a note that has been reposted. Must be an emoji the workspace has, or `reactions.add` answers `invalid_name`.                                                                                                                      |
 | `SLACK_CLIENT_ID`                | —                           | —     | Needed for the user-token exchange. Slack app, Basic Information.                                                                                                                                                                                    |
 | `SLACK_CLIENT_SECRET`            | —                           | —     | Needed for the user-token exchange. Read only by `amplifier.saveUserToken`, so it never reaches the receiver.                                                                                                                                        |
@@ -700,6 +740,8 @@ no default.
 Default call to action: "New Render social post! Please like and share when you have a minute"
 
 Default ping ask: "Please click the Repost button in this thread"
+
+Default reminder text: "This post still needs to be shared in #{channel}. The first hour matters most, so can the owner or another team member share it?"
 
 Every variable above reaches the Workflow service through the `amplifier-workflow` env group, so set them there rather than on the service. You add most of them to the group by hand, in step 4. `AMPLIFIER_SUMMARY_MODEL`, `AMPLIFIER_REPOST_EMOJI`, `NOTION_TYPEFULLY_PROPERTY`, `NOTION_OWNERS_PROPERTY` and `NOTION_DATABASE_ID` have literal values in `render.yaml`, so a Blueprint apply resets a Dashboard override of any of those five.
 

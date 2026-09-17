@@ -1,5 +1,5 @@
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
-import { get as kvGet } from "@render-lab/tasks-render-kv";
+import { get as kvGet, set as kvSet } from "@render-lab/tasks-render-kv";
 import { addReaction } from "@render-lab/tasks-slack";
 import { loadConfig } from "../config.js";
 import {
@@ -11,6 +11,7 @@ import {
 } from "../slack/oauth.js";
 import { postNote } from "../slack/postNote.js";
 import { respondEphemeral, type ResponseFetch } from "../slack/respond.js";
+import { repostedKey } from "./remindRepost.js";
 import { readNote } from "./storedNote.js";
 import { withoutRepostButton } from "./template.js";
 import { REPOST_RETRY } from "./retry.js";
@@ -145,7 +146,7 @@ export async function repostImpl(
     }
   }
 
-  await markSource(ctx, input, config.repostEmoji);
+  await markSource(ctx, input, config.repostEmoji, config.seenTtlSeconds);
   await reply(`Reposted to #${repostChannel}.`);
   return { reposted: true, ...(threadTs ? { threadTs } : {}) };
 }
@@ -187,14 +188,35 @@ async function sendAuthorizeLink(
 }
 
 /**
- * Mark the source thread as reposted: a reaction on the parent and a reply
- * naming who did it.
+ * Mark the source thread as reposted: a Key Value marker, a reaction on the
+ * parent, and a reply naming who did it.
  *
- * Neither failure stops the run. The repost is already posted, so a missing
- * reaction is cosmetic, and throwing here would retry the whole task and post
- * the thread a second time.
+ * No failure here stops the run. The repost is already posted, so a missing
+ * reaction is cosmetic, and throwing would retry the whole task and post the
+ * thread a second time. A missing marker only costs a reminder for a note that
+ * has in fact been reposted.
+ *
+ * The marker carries the seen TTL, so it expires with the stored note and the
+ * announced marker.
  */
-async function markSource(ctx: TaskContext, input: RepostInput, emoji: string): Promise<void> {
+async function markSource(
+  ctx: TaskContext,
+  input: RepostInput,
+  emoji: string,
+  ttlSeconds: number,
+): Promise<void> {
+  try {
+    await ctx.run(kvSet, {
+      key: repostedKey(input.channel, input.messageTs),
+      value: "reposted",
+      ttlSeconds,
+    });
+  } catch (err) {
+    console.error(
+      "[amplifier] Could not record this note as reposted, so it may still get a reminder.",
+      err,
+    );
+  }
   try {
     await ctx.run(addReaction, { channel: input.channel, ts: input.messageTs, emoji });
   } catch (err) {

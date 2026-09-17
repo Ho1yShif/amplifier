@@ -116,6 +116,54 @@ describe("postNoteImpl", () => {
     }
   });
 
+  it("broadcasts a reply to the channel when broadcast is set", async () => {
+    const { sent, restore } = captureFetch(OK);
+    try {
+      const { ctx } = taskCtx({});
+      await postNoteImpl(
+        ctx,
+        { ...message, channel: "#social", threadTs: "1758000000.000100", broadcast: true },
+        { SLACK_BOT_TOKEN: "xoxb-test" },
+      );
+      expect(sent[0]?.body).toMatchObject({
+        thread_ts: "1758000000.000100",
+        reply_broadcast: true,
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it("sends no reply_broadcast on a message that is not a reply", async () => {
+    const { sent, restore } = captureFetch(OK);
+    try {
+      const { ctx } = taskCtx({});
+      await postNoteImpl(
+        ctx,
+        { ...message, channel: "#social", broadcast: true },
+        { SLACK_BOT_TOKEN: "xoxb-test" },
+      );
+      expect(sent[0]?.body).not.toHaveProperty("reply_broadcast");
+    } finally {
+      restore();
+    }
+  });
+
+  it("sends no reply_broadcast on an ordinary reply", async () => {
+    const { sent, restore } = captureFetch(OK);
+    try {
+      const { ctx } = taskCtx({});
+      await postNoteImpl(
+        ctx,
+        { ...message, channel: "#social", threadTs: "1758000000.000100" },
+        { SLACK_BOT_TOKEN: "xoxb-test" },
+      );
+      expect(sent[0]?.body).not.toHaveProperty("reply_broadcast");
+    } finally {
+      restore();
+    }
+  });
+
   it("sends no thread_ts when the message is not a reply", async () => {
     const { sent, restore } = captureFetch(OK);
     try {

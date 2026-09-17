@@ -15,6 +15,8 @@ export interface PostNoteInput extends PostMessageInput {
   threadTs?: string;
   /** A Slack user token, to post as that person instead of as the bot. */
   userToken?: string;
+  /** Whether a threaded reply also shows in the channel. Ignored without `threadTs`. */
+  broadcast?: boolean;
 }
 
 /**
@@ -24,18 +26,26 @@ export interface PostNoteInput extends PostMessageInput {
  * `@render-lab/tasks-slack` 0.3.0 sends neither and exposes no option for them.
  * Until it does, add them to the request body on the way out.
  *
- * `thread_ts` rides the same rewrite. `PostMessageInput` has no field for it in
- * 0.3.0 and `postMessageImpl` builds the Web API body from `channel`, `text` and
- * `blocks` alone, so the body is the only place to add it.
+ * `thread_ts` and `reply_broadcast` ride the same rewrite. `PostMessageInput`
+ * has no field for either in 0.3.0 and `postMessageImpl` builds the Web API
+ * body from `channel`, `text` and `blocks` alone, so the body is the only place
+ * to add them.
  */
 const UNFURL_OFF = { unfurl_links: false, unfurl_media: false };
 
-function rewriteBody(body: string, threadTs: string | undefined): string {
+/** The fields `rewriteBody` adds to a reply, beyond what the vendor sends. */
+interface ReplyFields {
+  threadTs?: string;
+  broadcast?: boolean;
+}
+
+function rewriteBody(body: string, reply: ReplyFields): string {
   const parsed = JSON.parse(body) as Record<string, unknown>;
   return JSON.stringify({
     ...parsed,
     ...UNFURL_OFF,
-    ...(threadTs ? { thread_ts: threadTs } : {}),
+    ...(reply.threadTs ? { thread_ts: reply.threadTs } : {}),
+    ...(reply.threadTs && reply.broadcast ? { reply_broadcast: true } : {}),
   });
 }
 
@@ -48,12 +58,12 @@ function rewriteBody(body: string, threadTs: string | undefined): string {
  * `TYPEFULLY_BASE_URL` does for Typefully. `webApiPort` builds the Slack host
  * into the URL itself, so rewriting the URL here is the only route.
  */
-function outgoingFetch(threadTs: string | undefined, env: NodeJS.ProcessEnv) {
+function outgoingFetch(reply: ReplyFields, env: NodeJS.ProcessEnv) {
   const base = slackBaseUrl(env);
   return (url: string, init: { body: string }) =>
     fetch(url.replace(SLACK_API_BASE_URL, base), {
       ...init,
-      body: rewriteBody(init.body, threadTs),
+      body: rewriteBody(init.body, reply),
     });
 }
 
@@ -75,7 +85,8 @@ const noWebhookPort: SlackPort = {
 };
 
 /**
- * The vendor's Web API port with unfurling off and `thread_ts` added.
+ * The vendor's Web API port with unfurling off, and `thread_ts` and
+ * `reply_broadcast` added.
  *
  * Built per call, so SLACK_BOT_TOKEN is read at call time and never at import.
  * A user token is applied by handing `webApiPort` a copy of the environment
@@ -86,7 +97,16 @@ function slackDeps(env: NodeJS.ProcessEnv, input: PostNoteInput): SlackDeps {
   const tokenEnv = input.userToken ? { ...env, SLACK_BOT_TOKEN: input.userToken } : env;
   return {
     slack: noWebhookPort,
-    web: webApiPort({ fetchImpl: outgoingFetch(input.threadTs, env), env: tokenEnv }),
+    web: webApiPort({
+      fetchImpl: outgoingFetch(
+        {
+          ...(input.threadTs ? { threadTs: input.threadTs } : {}),
+          ...(input.broadcast ? { broadcast: true } : {}),
+        },
+        env,
+      ),
+      env: tokenEnv,
+    }),
   };
 }
 
@@ -115,5 +135,9 @@ export async function postNoteImpl(
   return postMessageImpl(ctx, input, slackDeps(env, input));
 }
 
-/** Post one note, threaded when `threadTs` is set and as a person when `userToken` is. */
+/**
+ * Post one note, threaded when `threadTs` is set and as a person when
+ * `userToken` is. A threaded reply also shows in the channel when `broadcast`
+ * is set.
+ */
 export const postNote = task({ name: "amplifier.postNote", retry: SLACK_RETRY }, postNoteImpl);
