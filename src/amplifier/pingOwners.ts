@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import { deleteKeys, get as kvGet, lock, set as kvSet } from "@render-lab/tasks-render-kv";
 import { loadConfig, type AmplifierConfig } from "../config.js";
@@ -16,7 +15,7 @@ import {
   renderUnreachableNote,
   type UnreachableOwner,
 } from "./pingTemplate.js";
-import { INFLIGHT_TTL_SECONDS, releaseClaim } from "./seen.js";
+import { INFLIGHT_TTL_SECONDS, releaseClaim, runToken } from "./seen.js";
 
 export interface PingOwnersInput {
   /** Notion page id from the webhook, or pasted in for a manual run. */
@@ -249,7 +248,7 @@ export async function pingOwnersImpl(
   }
 
   const lockKey = pingInflightKey(pageId);
-  const token = `amplifier:run:${randomUUID()}`;
+  const token = runToken();
   const { acquired } = await ctx.run(lock, {
     key: lockKey,
     token,

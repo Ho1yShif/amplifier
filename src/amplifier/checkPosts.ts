@@ -1,11 +1,10 @@
-import { randomUUID } from "node:crypto";
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import { loadConfig, MAX_LIMIT, type CheckPostsInput } from "../config.js";
 import { listPublished } from "../typefully/listPublished.js";
 import type { Platform } from "../typefully/types.js";
 import { announceGroups, type NoteResult } from "./announce.js";
 import { groupPosts } from "./group.js";
-import { announcedDraftIds } from "./seen.js";
+import { announcedDraftIds, runToken } from "./seen.js";
 import { pendingForDraft, settleDeadlineMs, StillPublishingError } from "./settle.js";
 import { withinWindow } from "./window.js";
 
@@ -41,11 +40,6 @@ export async function checkPostsImpl(
   if (!Number.isFinite(nowMs)) {
     throw new Error(`input.now is not a parseable timestamp: ${input.now}`);
   }
-
-  // Unique per invocation and stable within it. The SDK 1.0 TaskContext exposes
-  // no run id, and the in-flight lock only has to tell this run's lock from
-  // another run's.
-  const runToken = `amplifier:run:${randomUUID()}`;
 
   const { posts } = await ctx.run(listPublished, {
     ...(config.socialSetId ? { socialSetId: config.socialSetId } : {}),
@@ -95,7 +89,7 @@ export async function checkPostsImpl(
   const unannounced = recent.filter((p) => !announced.has(p.draftId));
   const groups = groupPosts(unannounced, config.groupWindowMinutes);
 
-  const { notes, skipped } = await announceGroups(ctx, groups, config, runToken, {
+  const { notes, skipped } = await announceGroups(ctx, groups, config, runToken(), {
     ...(input.draftId !== undefined && droppedPlatforms.length > 0
       ? { droppedFor: { draftId: input.draftId, platforms: droppedPlatforms } }
       : {}),

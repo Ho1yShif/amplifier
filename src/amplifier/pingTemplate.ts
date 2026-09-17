@@ -1,5 +1,6 @@
 import type { PostMessageInput } from "@render-lab/tasks-slack";
 import type { Launch, Owner } from "../notion/types.js";
+import { body } from "../slack/mrkdwn.js";
 
 /** The ask on the first line of an owner's DM. Override with AMPLIFIER_PING_ASK. */
 export const DEFAULT_PING_ASK = "Please click the Repost button in this thread";
@@ -24,11 +25,6 @@ export interface UnreachableOwner {
   owner: Owner;
   /** Why no DM went out, such as `no Slack account for name@render.com`. */
   reason: string;
-}
-
-/** Join the non-empty parts of a message the way Slack renders paragraphs. */
-function body(parts: string[]): string {
-  return parts.filter((s) => s !== "").join("\n\n");
 }
 
 /** The launch's title, or a stand-in when the page has none. */

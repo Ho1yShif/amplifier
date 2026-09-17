@@ -1,4 +1,5 @@
 import type { PostMessageInput, SlackBlock } from "@render-lab/tasks-slack";
+import { body } from "../slack/mrkdwn.js";
 import { compareTime } from "../time.js";
 import { PLATFORM_NAMES, PLATFORM_ORDER, platformLabel } from "../typefully/platforms.js";
 import type { Platform, PlatformLink } from "../typefully/types.js";
@@ -95,11 +96,6 @@ function fallbackBlocks(group: PostGroup, opts: RenderNoteOptions, lead: string)
     .map((p) => `> ${p}`)
     .join("\n>\n");
   return [`${lead}${failure}`, quotes];
-}
-
-/** Join the non-empty parts of a note body the way Slack renders paragraphs. */
-function body(parts: string[]): string {
-  return parts.filter((s) => s !== "").join("\n\n");
 }
 
 /** A mrkdwn section block, the only block shape these notes use for text. */

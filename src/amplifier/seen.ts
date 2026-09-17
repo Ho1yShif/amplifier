@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { TaskContext } from "@renderinc/sdk/workflows";
 import { get as kvGet, lock, set as kvSet, unlock } from "@render-lab/tasks-render-kv";
 import type { PostGroup } from "./group.js";
@@ -15,6 +16,17 @@ export interface Claim {
  * `amplifier.handleEvent` retry or a manual re-run.
  */
 export const INFLIGHT_TTL_SECONDS = 300;
+
+/**
+ * A token identifying one run's locks, unique per invocation and stable within
+ * it.
+ *
+ * The SDK 1.0 TaskContext exposes no run id, and an in-flight lock only has to
+ * tell this run's lock from another run's.
+ */
+export function runToken(): string {
+  return `amplifier:run:${randomUUID()}`;
+}
 
 /** Key that records a draft as announced. Written after Slack accepts the note. */
 export function seenKey(draftId: string): string {

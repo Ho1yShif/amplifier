@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { task, type TaskContext } from "@renderinc/sdk/workflows";
 import { deleteKeys, get as kvGet } from "@render-lab/tasks-render-kv";
 import { loadConfig, MAX_LIMIT } from "../config.js";
@@ -6,7 +5,7 @@ import { listPublished } from "../typefully/listPublished.js";
 import { matchPost, noMatchMessage } from "../typefully/match.js";
 import { announceGroups, type NoteResult } from "./announce.js";
 import { groupPosts } from "./group.js";
-import { seenKey } from "./seen.js";
+import { runToken, seenKey } from "./seen.js";
 
 export interface AnnouncePostInput {
   /** Permalink to the live post, or its Typefully share URL. Either this or draftId. */
@@ -73,8 +72,7 @@ export async function announcePostImpl(
   // A group window of 0, so a cross-posted draft still makes one note holding
   // both permalinks and no neighbouring draft joins it.
   const groups = groupPosts([post], 0);
-  const runToken = `amplifier:run:${randomUUID()}`;
-  const { notes } = await announceGroups(ctx, groups, config, runToken);
+  const { notes } = await announceGroups(ctx, groups, config, runToken());
 
   const note = notes[0];
   if (!note) {
