@@ -21,8 +21,19 @@ export interface ReceiverOptions {
 /** How long the OAuth callback waits for the token exchange before giving up. */
 const EXCHANGE_TIMEOUT_MS = 20_000;
 
-/** Same cap the vendor's own routes use, so every route on this service agrees. */
+/**
+ * Cap for the routes `createDispatchServer` registers, passed to it explicitly
+ * so this service does not inherit whatever the vendor's default becomes.
+ */
 const MAX_BODY_BYTES = 1_048_576;
+
+/**
+ * Cap for Slack interactivity, which is tighter because the payload is known.
+ * A real Repost click measures about 2 KB form-encoded, note blocks included,
+ * so this leaves 30x headroom and still bounds what one unsigned request can
+ * hold in memory.
+ */
+const MAX_INTERACTIVITY_BYTES = 65_536;
 
 /**
  * The receiver's HTTP app: the dispatch server plus the two Slack routes.
@@ -39,6 +50,7 @@ export function buildReceiver(opts: ReceiverOptions): Hono {
     workflowSlug: opts.workflowSlug,
     dispatcher: opts.dispatcher,
     webhooks: { typefully: typefullyWebhook({ env, now }) },
+    maxBodyBytes: MAX_BODY_BYTES,
   });
 
   /**
@@ -51,7 +63,7 @@ export function buildReceiver(opts: ReceiverOptions): Hono {
   app.post(
     "/slack/interactivity",
     bodyLimit({
-      maxSize: MAX_BODY_BYTES,
+      maxSize: MAX_INTERACTIVITY_BYTES,
       onError: (c) => c.json({ error: "payload too large" }, 413),
     }),
     async (c) => {

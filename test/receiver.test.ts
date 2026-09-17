@@ -11,8 +11,12 @@ const NOW_MS = Date.parse("2026-09-11T12:00:00Z");
 const TIMESTAMP = String(Math.floor(NOW_MS / 1000));
 const BASE = "https://amplifier-webhook.onrender.com";
 
-/** Past the 1 MiB cap `POST /slack/interactivity` enforces. */
-const OVER_CAP_BYTES = 2 * 1024 * 1024;
+/**
+ * Past the 64 KiB cap `POST /slack/interactivity` enforces, and under the 1 MiB
+ * cap the rest of the service uses, so it proves the tighter cap is the one on
+ * that route.
+ */
+const OVER_CAP_BYTES = 128 * 1024;
 
 /** The content type Slack posts interactivity with. */
 const FORM_ENCODED = { "content-type": "application/x-www-form-urlencoded" };
