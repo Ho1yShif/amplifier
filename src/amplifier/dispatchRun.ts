@@ -1,5 +1,8 @@
 import { renderDispatcher } from "@render-lab/triggers";
 
+/** Starts a workflow run by task name. */
+export type StartRun = (task: string, args: unknown[]) => Promise<void>;
+
 /**
  * Start a workflow run by task name, or report that this deploy cannot.
  *
@@ -12,13 +15,11 @@ import { renderDispatcher } from "@render-lab/triggers";
  * in. This is a call from the Workflow service back to itself by slug, the same
  * Render API call the receiver makes.
  */
-export type StartRun = (task: string, args: unknown[]) => Promise<string | null>;
-
 export async function startRun(
   task: string,
   args: unknown[],
   env: NodeJS.ProcessEnv = process.env,
-): Promise<string | null> {
+): Promise<void> {
   const slug = env.WORKFLOW_SLUG?.trim();
   const apiKey = env.RENDER_API_KEY?.trim();
   // Logged and skipped rather than thrown, so `pnpm local:run` and `localCtx`
@@ -29,8 +30,10 @@ export async function startRun(
       `[amplifier] Not starting ${task}: this service has no ` +
         `${!slug ? "WORKFLOW_SLUG" : "RENDER_API_KEY"}.`,
     );
-    return null;
+    return;
   }
+  // The run id is the only handle on a run nobody awaits, so it is logged for
+  // whoever has to find the reminder's run in the dashboard.
   const { runId } = await renderDispatcher({ slug }).start(task, args);
-  return runId;
+  console.log(`[amplifier] Started ${task} as run ${runId}.`);
 }

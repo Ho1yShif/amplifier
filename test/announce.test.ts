@@ -248,7 +248,6 @@ describe("announceGroups, the repost reminder", () => {
       started,
       startRun: async (task: string, args: unknown[]) => {
         started.push({ task, args });
-        return "run_1";
       },
     };
   }
@@ -350,7 +349,6 @@ describe("announceGroups, dry run", () => {
       await announceGroups(ctx, crossPost, loadConfig({ dryRun: true }, withRepost), "run-1", {
         startRun: async (task: string) => {
           started.push(task);
-          return "run_1";
         },
       });
       expect(started).toEqual([]);
