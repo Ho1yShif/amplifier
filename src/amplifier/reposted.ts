@@ -31,3 +31,13 @@ export function repostedKey(noteKey: string): string {
 export function remindedKey(noteKey: string): string {
   return `amplifier:reminded:${noteIds(noteKey)}`;
 }
+
+/**
+ * Key one click holds while it is reposting a note.
+ *
+ * Built from the note's drafts like the other two, so a click on the reminder
+ * and a click on the parent contend for the same lock.
+ */
+export function repostInflightKey(noteKey: string): string {
+  return `amplifier:repost-inflight:${noteIds(noteKey)}`;
+}

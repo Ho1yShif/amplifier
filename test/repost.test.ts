@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { repostedKey } from "../src/amplifier/reposted.js";
+import { repostedKey, repostInflightKey } from "../src/amplifier/reposted.js";
 import { repostImpl, type RepostInput } from "../src/amplifier/repost.js";
 import { loadConfig } from "../src/config.js";
+import { INFLIGHT_TTL_SECONDS } from "../src/amplifier/seen.js";
 import { noteKey, type StoredNote } from "../src/amplifier/storedNote.js";
 import { userTokenKey } from "../src/slack/oauth.js";
 import { renderChildren, renderParent } from "../src/amplifier/template.js";
@@ -56,9 +57,16 @@ function collectReplies(): { texts: string[]; fetchImpl: typeof fetch } {
 
 function handlers(overrides: TaskHandlers = {}): TaskHandlers {
   return {
-    "kv.get": ({ key }: { key: string }) =>
-      key === userTokenKey("U9") ? { value: "xoxp-person" } : { value: JSON.stringify(stored) },
+    "kv.get": ({ key }: { key: string }) => {
+      if (key === userTokenKey("U9")) return { value: "xoxp-person" };
+      // Unreposted, so the claim goes through. A test about a repeat click
+      // overrides this.
+      if (key === repostedKey(noteKey(["1"]))) return { value: null };
+      return { value: JSON.stringify(stored) };
+    },
     "kv.set": () => ({ ok: true }),
+    "kv.lock": () => ({ acquired: true }),
+    "kv.unlock": () => ({ released: true }),
     "amplifier.postNote": () => ({ delivered: true, channel: "C2", ts: "17590000.001" }),
     "slack.addReaction": () => ({ ok: true }),
     ...overrides,
@@ -187,7 +195,7 @@ describe("repostImpl, the happy path", () => {
     expect(reply).not.toHaveProperty("userToken");
   });
 
-  it("treats already_reacted as success, so a repeat click still reposts", async () => {
+  it("treats already_reacted as success, so the reaction does not fail the repost", async () => {
     const { texts, fetchImpl } = collectReplies();
     const { ctx } = taskCtx(
       handlers({
@@ -331,5 +339,126 @@ describe("repostImpl, the refusals", () => {
     expect(posted(calls)).toHaveLength(0);
     expect(calls.some((c) => c.name === "slack.addReaction")).toBe(false);
     expect(texts).toEqual([]);
+  });
+});
+
+describe("repostImpl and a repeat click", () => {
+  it("claims the note before it posts the parent", async () => {
+    const { fetchImpl } = collectReplies();
+    const { ctx, calls } = taskCtx(handlers());
+    await repostImpl(ctx, input, env, { fetchImpl, now: () => NOW });
+
+    const names = calls.map((c) => c.name);
+    expect(names.indexOf("kv.lock")).toBeLessThan(names.indexOf("amplifier.postNote"));
+    expect(calls.find((c) => c.name === "kv.lock")?.input).toEqual({
+      key: repostInflightKey(noteKey(["1"])),
+      token: expect.stringMatching(/^amplifier:run:/),
+      ttlSeconds: INFLIGHT_TTL_SECONDS,
+    });
+  });
+
+  it("keeps the lock once the thread is posted, so a retry cannot post it twice", async () => {
+    const { fetchImpl } = collectReplies();
+    const { ctx, calls } = taskCtx(handlers());
+    const result = await repostImpl(ctx, input, env, { fetchImpl, now: () => NOW });
+
+    expect(result.reposted).toBe(true);
+    expect(calls.some((c) => c.name === "kv.unlock")).toBe(false);
+  });
+
+  it("posts nothing when the note is already reposted, and says so", async () => {
+    const { texts, fetchImpl } = collectReplies();
+    const { ctx, calls } = taskCtx(
+      handlers({
+        "kv.get": ({ key }: { key: string }) => {
+          if (key === userTokenKey("U9")) return { value: "xoxp-person" };
+          if (key === repostedKey(noteKey(["1"]))) return { value: "reposted" };
+          return { value: JSON.stringify(stored) };
+        },
+      }),
+    );
+    const result = await repostImpl(ctx, input, env, { fetchImpl, now: () => NOW });
+
+    expect(result).toEqual({ reposted: false, reason: "already-reposted" });
+    expect(posted(calls)).toEqual([]);
+    expect(texts).toEqual(["Somebody already reposted this note to #amplify-wider."]);
+  });
+
+  it("posts nothing while another click is reposting, and says so", async () => {
+    const { texts, fetchImpl } = collectReplies();
+    const { ctx, calls } = taskCtx(handlers({ "kv.lock": () => ({ acquired: false }) }));
+    const result = await repostImpl(ctx, input, env, { fetchImpl, now: () => NOW });
+
+    expect(result).toEqual({ reposted: false, reason: "repost-in-flight" });
+    expect(posted(calls)).toEqual([]);
+    expect(texts).toEqual([
+      "This note is being reposted to #amplify-wider right now. Check the channel in a few " +
+        "minutes, and click again if nothing landed.",
+    ]);
+  });
+
+  it("releases the lock when Slack refuses the clicker the channel", async () => {
+    const { texts, fetchImpl } = collectReplies();
+    const { ctx, calls } = taskCtx(
+      handlers({
+        "amplifier.postNote": () => {
+          throw new Error("Slack API chat.postMessage error: not_in_channel");
+        },
+      }),
+    );
+    const result = await repostImpl(ctx, input, env, { fetchImpl, now: () => NOW });
+
+    expect(result.reason).toBe("not-in-channel");
+    // Released, so the same person can join the channel and click again.
+    expect(calls.find((c) => c.name === "kv.unlock")?.input).toEqual({
+      key: repostInflightKey(noteKey(["1"])),
+      token: expect.stringMatching(/^amplifier:run:/),
+    });
+    expect(texts[0]).toContain("Join #amplify-wider");
+  });
+
+  it("refuses a reposted note before it asks the clicker to authorize", async () => {
+    const { texts, fetchImpl } = collectReplies();
+    const { ctx, calls } = taskCtx(
+      handlers({
+        // Nobody's token, so the old order would have sent the authorize link.
+        "kv.get": ({ key }: { key: string }) => {
+          if (key === userTokenKey("U9")) return { value: null };
+          if (key === repostedKey(noteKey(["1"]))) return { value: "reposted" };
+          return { value: JSON.stringify(stored) };
+        },
+      }),
+    );
+    const result = await repostImpl(ctx, input, env, { fetchImpl, now: () => NOW });
+
+    expect(result).toEqual({ reposted: false, reason: "already-reposted" });
+    expect(texts).toEqual(["Somebody already reposted this note to #amplify-wider."]);
+    expect(calls.some((c) => c.name === "kv.lock")).toBe(false);
+  });
+
+  it("keeps the claim when the parent post fails for any other reason", async () => {
+    const { fetchImpl } = collectReplies();
+    const { ctx, calls } = taskCtx(
+      handlers({
+        "amplifier.postNote": () => {
+          throw new Error("Slack API chat.postMessage error: ratelimited");
+        },
+      }),
+    );
+
+    await expect(repostImpl(ctx, input, env, { fetchImpl, now: () => NOW })).rejects.toThrow(
+      "ratelimited",
+    );
+    // Slack may have taken the post it failed to report, so the retry is given
+    // up rather than risking a second thread.
+    expect(calls.some((c) => c.name === "kv.unlock")).toBe(false);
+  });
+
+  it("takes no lock in a dry run", async () => {
+    const { fetchImpl } = collectReplies();
+    const { ctx, calls } = taskCtx(handlers());
+    await repostImpl(ctx, input, { ...env, DRY_RUN: "true" }, { fetchImpl, now: () => NOW });
+
+    expect(calls.some((c) => c.name === "kv.lock")).toBe(false);
   });
 });

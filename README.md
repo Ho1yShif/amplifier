@@ -545,8 +545,17 @@ Every person who clicks has to be a member of the repost channel. Slack answers
 `not_in_channel` when they are not, and amplifier answers privately asking them to join
 it. The bot never posts in the repost channel and does not need to be a member.
 
-The button stays live after a click, so a second click reposts again. A reposted note
-carries no button, so a repost cannot itself be reposted.
+The button stays live after a click, but a second click does not repost the note. Amplifier
+takes a 5-minute lock on the note and then reads the reposted marker, so a click while the
+first repost is going out answers privately that it is already going out, and a click after
+it landed answers that somebody already reposted it. A reposted note carries no button, so a
+repost cannot itself be reposted.
+
+The lock is held, not released, once the parent is posted, so a retry of `amplifier.repost`
+cannot post the thread twice. A repost that fails on the parent post is not retried either,
+because `chat.postMessage` is not idempotent and Slack may have accepted a message it then
+failed to report. The failure is logged, the clicker is told to check the repost channel, and
+the button works again once the lock expires five minutes later.
 
 `amplifier.repost` reads the note's text from `amplifier-kv`, not from Slack. The record
 carries the same 30-day TTL as the announced marker, so an older note answers that it is
