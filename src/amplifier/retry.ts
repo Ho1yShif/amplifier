@@ -67,3 +67,16 @@ function budgetMinutes({ maxRetries, waitDurationMs, backoffScaling }: Retry): n
  * startup instead.
  */
 export const MAX_SETTLE_MINUTES = budgetMinutes(HANDLE_EVENT_RETRY);
+
+/**
+ * Retry policy for amplifier.editNote. Backoff over 1s, 2s, 4s, 8s.
+ *
+ * Sized like REPOST_RETRY, for the same reason: a person submitted a modal and
+ * is waiting to see the note change. Both of the task's writes are idempotent,
+ * so a retry re-runs the whole task safely.
+ */
+export const EDIT_RETRY: Retry = {
+  maxRetries: 4,
+  waitDurationMs: 1_000,
+  backoffScaling: 2,
+};
