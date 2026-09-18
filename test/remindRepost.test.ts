@@ -108,6 +108,7 @@ describe("remindRepostImpl, an un-reposted note", () => {
     expect(actions.elements[0].action_id).toBe(REPOST_ACTION_ID);
     expect(actions.elements[0].value).toBe(noteKey(["1"]));
     expect(actions.elements[0].text.text).toBe("Repost to #amplify-wider");
+    expect(actions.elements).toHaveLength(1);
   });
 
   it("writes the reminded marker before it posts, so a second run posts nothing", async () => {
