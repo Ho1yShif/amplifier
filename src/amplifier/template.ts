@@ -13,7 +13,7 @@ export const DEFAULT_CALL_TO_ACTION =
 export const REPOST_ACTION_ID = "amplifier_repost";
 
 /** Marks the parent of a thread whose links are replies. */
-const THREAD_MARKER = " 🧵";
+export const THREAD_MARKER = " 🧵";
 
 export interface RenderNoteOptions {
   /** Slack channel to post to. Requires SLACK_BOT_TOKEN to be honored. */
