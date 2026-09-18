@@ -563,6 +563,23 @@ too old to repost.
 
 Unset `AMPLIFIER_REPOST_CHANNEL` to turn all of this off: no button, no stored note.
 
+## Editing a note
+
+Every note carries an **Edit** button next to Repost. Clicking it opens a box holding the
+note's current text.
+
+Saving rewrites the note in the channel and the copy the Repost button posts. Slack marks
+the note as edited.
+
+The links cannot be edited here. They come from Typefully.
+
+Editing a note that was already reposted changes the note in the queue channel only. The
+reposted copy stays as it went out, and the confirmation says so.
+
+Notes posted before this shipped carry no Edit button.
+
+Editing needs no Slack app change and no reinstall. The button needs only a deploy.
+
 ## Repost reminders
 
 Thirty minutes after a note goes out, amplifier checks whether anybody reposted it. If nobody
