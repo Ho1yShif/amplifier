@@ -22,6 +22,11 @@ describe("task registration", () => {
     expect(names).toContain("amplifier.remindRepost");
   });
 
+  it("registers the edit tasks, which the receiver starts by name", () => {
+    expect(names).toContain("amplifier.editNote");
+    expect(names).toContain("amplifier.updateNote");
+  });
+
   it("registers the tasks they compose", () => {
     expect(names).toEqual(
       expect.arrayContaining([

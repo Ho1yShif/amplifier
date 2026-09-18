@@ -24,7 +24,7 @@ exact peer dependency: one physical copy means every task registers into the sam
 
 ## Amplifier's own tasks
 
-Seven tasks are entry points, started from outside the workflow. The rest are composed from them.
+Eight tasks are entry points, started from outside the workflow. The rest are composed from them.
 
 | Task                      | Started by                                   | Retry                |
 | ------------------------- | -------------------------------------------- | -------------------- |
@@ -33,9 +33,11 @@ Seven tasks are entry points, started from outside the workflow. The rest are co
 | `amplifier.announcePost`  | By hand, with a permalink or draft id        | none                 |
 | `amplifier.pingOwners`    | `announceGroups`, and by hand with a page id | none                 |
 | `amplifier.repost`        | A Repost button click in Slack               | `REPOST_RETRY`       |
+| `amplifier.editNote`      | A saved edit modal in Slack                  | `EDIT_RETRY`         |
 | `amplifier.remindRepost`  | `announceGroups`, as its own run             | `REMIND_RETRY`       |
 | `amplifier.saveUserToken` | The Slack OAuth callback                     | none                 |
 | `amplifier.postNote`      | Every task above that posts to Slack         | `SLACK_RETRY`        |
+| `amplifier.updateNote`    | `editNote`, to rewrite the posted note       | `SLACK_RETRY`        |
 | `amplifier.lookupUser`    | `pingOwners`, per owner                      | `SLACK_RETRY`        |
 | `amplifier.openDm`        | `pingOwners`, per owner                      | `SLACK_RETRY`        |
 | `amplifier.messageLink`   | `pingOwners`, for the thread the DM links to | `SLACK_RETRY`        |
@@ -44,7 +46,7 @@ Seven tasks are entry points, started from outside the workflow. The rest are co
 | `notion.getPage`          | `pingOwners`, to read the owners             | `NOTION_RETRY`       |
 | `ping`                    | By hand, to check the registry loaded        | none                 |
 
-`src/main.ts` imports the seven entry modules for the side effect. Each one calls `task()` at load, so
+`src/main.ts` imports the eight entry modules for the side effect. Each one calls `task()` at load, so
 the import registers that task and, through its own imports, every vendor task it calls. A new entry
 task that is not imported there does not exist on the deploy. To confirm the registry loaded, run
 `render workflows start <slug>/ping --input='[]'` and expect `pong`.
@@ -59,10 +61,10 @@ in the Dashboard.
 
 Amplifier's tasks compose vendor tasks instead of calling vendor clients, except where no packaged
 task covers the call. `saveUserTokenImpl` posts to `oauth.v2.access` through an injected `fetchImpl`.
-`amplifier.lookupUser`, `amplifier.openDm` and `amplifier.messageLink` go through `callSlack` in
-`src/slack/api.ts`, because `SlackWebPort` in 0.3.0 wraps neither `users.lookupByEmail` nor
-`conversations.open`, and its own `slack.getPermalink` throws on an `ok: false` body and ignores
-`SLACK_API_BASE_URL`. `callSlack` returns the `ok: false` body instead: `users_not_found` is an
+`amplifier.lookupUser`, `amplifier.openDm`, `amplifier.messageLink` and `amplifier.updateNote` go
+through `callSlack` in `src/slack/api.ts`, because `SlackWebPort` in 0.3.0 wraps none of
+`users.lookupByEmail`, `conversations.open` or `chat.update`, and its own `slack.getPermalink`
+throws on an `ok: false` body and ignores `SLACK_API_BASE_URL`. `callSlack` returns the `ok: false` body instead: `users_not_found` is an
 answer about one person, not a transport failure.
 
 ## Where the retry policies matter
@@ -79,7 +81,8 @@ is how amplifier waits for the second platform. Two things depend on that budget
   could expire mid-call and a second run would re-post the note.
 
 `REPOST_RETRY` is short — 1s, 2s, 4s, 8s — because a person clicked the button and is waiting for the
-ephemeral answer. A long backoff reads as a dead button. It can only fire before the parent message is
+ephemeral answer. A long backoff reads as a dead button. `EDIT_RETRY` is the same shape for the same
+reason, and a retry re-runs both of `amplifier.editNote`'s writes, which repeat harmlessly. It can only fire before the parent message is
 posted; everything after that either swallows its own failure or answers the clicker and returns.
 
 `REMIND_RETRY` is for crash recovery. The reminder's delay is a `setTimeout` inside

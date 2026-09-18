@@ -8,7 +8,15 @@ import {
   verifyState,
   type StateFailure,
 } from "./slack/oauth.js";
-import { parseRepostClick, verifySlackSignature } from "./slack/interactivity.js";
+import {
+  parseEditClick,
+  parseEditSubmit,
+  parseRepostClick,
+  verifySlackSignature,
+} from "./slack/interactivity.js";
+import { editView, LEAD_BLOCK_ID } from "./slack/editModal.js";
+import { respondEphemeral } from "./slack/respond.js";
+import { openView } from "./slack/views.js";
 import { typefullyWebhook } from "./typefully/webhook.js";
 
 export interface ReceiverOptions {
@@ -54,11 +62,13 @@ export function buildReceiver(opts: ReceiverOptions): Hono {
   });
 
   /**
-   * Start a repost for a verified Repost click.
+   * Act on a verified interactivity payload: a Repost click, an Edit click, or
+   * a submitted edit modal.
    *
-   * Answers 200 before the dispatch, because Slack's interactivity budget is
-   * three seconds and starting a workflow run is slower than that. Everything
-   * the clicker needs to hear afterwards arrives through `response_url`.
+   * Answers 200 before the dispatch, because Slack's budget is three seconds
+   * and starting a run is slower. The clicker hears the rest through
+   * `response_url`. `views.open` is the exception, spending a `trigger_id` that
+   * expires inside those same three seconds.
    */
   app.post(
     "/slack/interactivity",
@@ -86,11 +96,60 @@ export function buildReceiver(opts: ReceiverOptions): Hono {
       }
 
       const click = parseRepostClick(payload);
-      if (!click) return c.body(null, 200);
+      if (click) {
+        void opts.dispatcher.start("amplifier.repost", [click]).catch((err: unknown) => {
+          console.error("[amplifier] Could not start amplifier.repost for a Repost click.", err);
+        });
+        return c.body(null, 200);
+      }
 
-      void opts.dispatcher.start("amplifier.repost", [click]).catch((err: unknown) => {
-        console.error("[amplifier] Could not start amplifier.repost for a Repost click.", err);
-      });
+      const edit = parseEditClick(payload);
+      if (edit) {
+        // Awaited rather than dispatched. A `trigger_id` is good for three
+        // seconds, so the modal has to open from here.
+        const opened = await openView(
+          edit.triggerId,
+          editView(
+            {
+              channel: edit.channel,
+              messageTs: edit.messageTs,
+              noteKey: edit.noteKey,
+              responseUrl: edit.responseUrl,
+            },
+            edit.lead,
+          ),
+          { env },
+        );
+        if (!opened.opened) {
+          console.error(`[amplifier] Slack refused views.open: ${opened.error}.`);
+          await respondEphemeral(
+            edit.responseUrl,
+            `Slack would not open the edit box: ${opened.error}. Click Edit again.`,
+          );
+        }
+        return c.body(null, 200);
+      }
+
+      const submit = parseEditSubmit(payload);
+      if (submit) {
+        const lead = submit.lead.trim();
+        if (lead === "") {
+          // `response_action` keeps the modal open with the error under the
+          // input, which is the only way to answer a submission inline.
+          return c.json(
+            { response_action: "errors", errors: { [LEAD_BLOCK_ID]: "Write the note's text." } },
+            200,
+          );
+        }
+        void opts.dispatcher
+          .start("amplifier.editNote", [{ ...submit.meta, lead }])
+          .catch((err: unknown) => {
+            console.error("[amplifier] Could not start amplifier.editNote for an edit.", err);
+          });
+        // An empty body closes the modal.
+        return c.json({}, 200);
+      }
+
       return c.body(null, 200);
     },
   );

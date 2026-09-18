@@ -1,7 +1,16 @@
 import { createHmac } from "node:crypto";
+import type { SlackBlock } from "@render-lab/tasks-slack";
 import { isFresh, timingSafeEquals } from "../http/signature.js";
 import { nonEmptyString } from "../json.js";
-import { REPOST_ACTION_ID } from "../amplifier/template.js";
+import { leadOf } from "../amplifier/lead.js";
+import { EDIT_ACTION_ID, REPOST_ACTION_ID } from "../amplifier/template.js";
+import {
+  decodeMeta,
+  EDIT_CALLBACK_ID,
+  LEAD_ACTION_ID,
+  LEAD_BLOCK_ID,
+  type EditMeta,
+} from "./editModal.js";
 
 /** Headers Slack signs an interactivity delivery with, lowercased. */
 const TIMESTAMP_HEADER = "x-slack-request-timestamp";
@@ -81,4 +90,81 @@ export function parseRepostClick(payload: unknown): RepostClick | null {
     return null;
   }
   return { channel, messageTs, userId, noteKey, responseUrl };
+}
+
+/** What an Edit click tells the receiver. */
+export interface EditClick {
+  channel: string;
+  /** The note's `ts`, which is the message the button is in. */
+  messageTs: string;
+  /** Key Value key of the stored note, carried in the button's `value`. */
+  noteKey: string;
+  /** Slack's one-shot ticket for opening a modal, good for three seconds. */
+  triggerId: string;
+  /** Slack URL for answering the editor privately, kept for after the submit. */
+  responseUrl: string;
+  /** The note's current lead line, which the modal opens prefilled with. */
+  lead: string;
+}
+
+/**
+ * Read an Edit click out of an interactivity payload, or null.
+ *
+ * Only a note carries the button, so the clicked message is the note and there
+ * is no thread to walk. The prefill falls back to the message's `text`, which
+ * `renderParent` sets to the lead line.
+ */
+export function parseEditClick(payload: unknown): EditClick | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const p = payload as Record<string, unknown>;
+  const actions = Array.isArray(p["actions"]) ? p["actions"] : [];
+  const action = actions[0] as Record<string, unknown> | undefined;
+  if (!action || action["action_id"] !== EDIT_ACTION_ID) return null;
+
+  const channel = nonEmptyString((p["channel"] as Record<string, unknown> | undefined)?.["id"]);
+  const message = p["message"] as Record<string, unknown> | undefined;
+  const messageTs = nonEmptyString(message?.["ts"]);
+  const noteKey = nonEmptyString(action["value"]);
+  const triggerId = nonEmptyString(p["trigger_id"]);
+  const responseUrl = nonEmptyString(p["response_url"]);
+  if (!channel || !messageTs || !noteKey || !triggerId || !responseUrl) {
+    console.error("[amplifier] An Edit click was missing fields the modal needs.");
+    return null;
+  }
+
+  const text = nonEmptyString(message?.["text"]) ?? "";
+  const blocks = (Array.isArray(message?.["blocks"]) ? message["blocks"] : []) as SlackBlock[];
+  const lead = leadOf({ text, blocks }) ?? text;
+
+  return { channel, messageTs, noteKey, triggerId, responseUrl, lead };
+}
+
+/** A submitted edit modal. */
+export interface EditSubmit {
+  meta: EditMeta;
+  /** Exactly what was typed. The receiver trims it and rejects a blank. */
+  lead: string;
+}
+
+/** Read a submitted edit modal, or null. The note comes out of `private_metadata`. */
+export function parseEditSubmit(payload: unknown): EditSubmit | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const p = payload as Record<string, unknown>;
+  if (p["type"] !== "view_submission") return null;
+
+  const view = p["view"] as Record<string, unknown> | undefined;
+  if (view?.["callback_id"] !== EDIT_CALLBACK_ID) return null;
+
+  const meta = decodeMeta(view["private_metadata"]);
+  if (!meta) {
+    console.error("[amplifier] An edit submission named no note amplifier could edit.");
+    return null;
+  }
+
+  const state = view["state"] as Record<string, unknown> | undefined;
+  const values = state?.["values"] as Record<string, unknown> | undefined;
+  const block = values?.[LEAD_BLOCK_ID] as Record<string, unknown> | undefined;
+  const input = block?.[LEAD_ACTION_ID] as { value?: unknown } | undefined;
+  const lead = input?.value;
+  return { meta, lead: typeof lead === "string" ? lead : "" };
 }

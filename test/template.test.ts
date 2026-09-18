@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SlackBlock } from "@render-lab/tasks-slack";
 import {
   DEFAULT_CALL_TO_ACTION,
+  EDIT_ACTION_ID,
   notePlatforms,
   REPOST_ACTION_ID,
   renderChildren,
@@ -120,7 +121,7 @@ describe("renderParent", () => {
     expect(renderParent(crossPost).channel).toBeUndefined();
   });
 
-  it("carries the Repost button with a channel and a note key", () => {
+  it("carries the Repost and Edit buttons with a channel and a note key", () => {
     const parent = renderParent(crossPost, {
       summary: "Faster.",
       repostChannel: "amplify-wider",
@@ -135,8 +136,24 @@ describe("renderParent", () => {
           text: { type: "plain_text", text: "Repost to #amplify-wider", emoji: true },
           value: "amplifier:note:1",
         },
+        {
+          type: "button",
+          action_id: EDIT_ACTION_ID,
+          text: { type: "plain_text", text: "Edit", emoji: true },
+          value: "amplifier:note:1",
+        },
       ],
     });
+  });
+
+  it("gives a flat note both buttons too", () => {
+    const flat = renderFlatNote(singleLink, {
+      summary: "Faster.",
+      repostChannel: "amplify-wider",
+      noteKey: "amplifier:note:1",
+    });
+    const elements = (actionsBlock(flat.blocks) as { elements: { action_id: string }[] }).elements;
+    expect(elements.map((e) => e.action_id)).toEqual([REPOST_ACTION_ID, EDIT_ACTION_ID]);
   });
 
   it("carries no button without a repost channel", () => {
@@ -263,7 +280,10 @@ describe("renderFlatNote", () => {
       noteKey: "k",
     });
     expect(actionsBlock(note.blocks)).toMatchObject({
-      elements: [{ text: { text: "Repost to #amplify-wider" }, value: "k" }],
+      elements: [
+        { text: { text: "Repost to #amplify-wider" }, value: "k" },
+        { text: { text: "Edit" }, value: "k" },
+      ],
     });
   });
 

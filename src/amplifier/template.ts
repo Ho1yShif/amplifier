@@ -1,4 +1,4 @@
-import type { PostMessageInput, SlackBlock } from "@render-lab/tasks-slack";
+import type { PostMessageInput, SlackBlock, SlackJsonValue } from "@render-lab/tasks-slack";
 import { body } from "../slack/mrkdwn.js";
 import { compareTime } from "../time.js";
 import { PLATFORM_NAMES, PLATFORM_ORDER, platformLabel } from "../typefully/platforms.js";
@@ -12,8 +12,11 @@ export const DEFAULT_CALL_TO_ACTION =
 /** The `action_id` the receiver matches to tell the Repost button from any other block action. */
 export const REPOST_ACTION_ID = "amplifier_repost";
 
+/** The `action_id` that tells an Edit click from a Repost click. */
+export const EDIT_ACTION_ID = "amplifier_edit";
+
 /** Marks the parent of a thread whose links are replies. */
-const THREAD_MARKER = " 🧵";
+export const THREAD_MARKER = " 🧵";
 
 export interface RenderNoteOptions {
   /** Slack channel to post to. Requires SLACK_BOT_TOKEN to be honored. */
@@ -104,23 +107,46 @@ export function section(text: string): SlackBlock {
 }
 
 /**
- * The Repost button, as an actions block.
+ * The Repost button.
  *
  * `value` is the Key Value key of the stored note, so the receiver can hand the
  * repost task everything it needs to rebuild the thread without reading the
  * thread back from Slack.
  */
+function repostElement(repostChannel: string, noteKey: string): SlackJsonValue {
+  return {
+    type: "button",
+    action_id: REPOST_ACTION_ID,
+    text: { type: "plain_text", text: `Repost to #${repostChannel}`, emoji: true },
+    value: noteKey,
+  };
+}
+
+/** The Edit button, carrying the same note key as Repost, which the edit rewrites. */
+function editElement(noteKey: string): SlackJsonValue {
+  return {
+    type: "button",
+    action_id: EDIT_ACTION_ID,
+    text: { type: "plain_text", text: "Edit", emoji: true },
+    value: noteKey,
+  };
+}
+
+/** The reminder's actions block, which offers the repost and nothing else. */
 export function repostBlock(repostChannel: string, noteKey: string): SlackBlock {
+  return { type: "actions", elements: [repostElement(repostChannel, noteKey)] };
+}
+
+/**
+ * A note's actions block, holding Repost and Edit.
+ *
+ * Only a note gets Edit. The reminder is a reply carrying its own text, so an
+ * Edit click there would rewrite the reminder.
+ */
+export function noteActions(repostChannel: string, noteKey: string): SlackBlock {
   return {
     type: "actions",
-    elements: [
-      {
-        type: "button",
-        action_id: REPOST_ACTION_ID,
-        text: { type: "plain_text", text: `Repost to #${repostChannel}`, emoji: true },
-        value: noteKey,
-      },
-    ],
+    elements: [repostElement(repostChannel, noteKey), editElement(noteKey)],
   };
 }
 
@@ -144,7 +170,7 @@ function noteParts(group: PostGroup, opts: RenderNoteOptions, lead: string): str
 function noteMessage(lead: string, parts: string[], opts: RenderParentOptions): PostMessageInput {
   const blocks: SlackBlock[] = [section(body(parts))];
   if (opts.repostChannel && opts.noteKey) {
-    blocks.push(repostBlock(opts.repostChannel, opts.noteKey));
+    blocks.push(noteActions(opts.repostChannel, opts.noteKey));
   }
   return {
     text: lead,
@@ -208,9 +234,10 @@ export function renderFlatNote(group: PostGroup, opts: RenderParentOptions = {})
 }
 
 /**
- * Strip the Repost button from a stored parent.
+ * Strip the note's buttons from a stored parent.
  *
- * A reposted thread carries no button, so a repost cannot itself be reposted.
+ * A reposted thread carries neither button, so a repost can be neither
+ * reposted nor edited.
  */
 export function withoutRepostButton(parent: PostMessageInput): PostMessageInput {
   if (!parent.blocks) return parent;
