@@ -1,8 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkflowDispatcher } from "@render-lab/triggers";
 import { buildReceiver } from "../src/receiver.js";
 import { CALLBACK_PATH, signState } from "../src/slack/oauth.js";
-import { REPOST_ACTION_ID } from "../src/amplifier/template.js";
+import {
+  EDIT_ACTION_ID,
+  noteActions,
+  REPOST_ACTION_ID,
+  section,
+} from "../src/amplifier/template.js";
+import {
+  encodeMeta,
+  EDIT_CALLBACK_ID,
+  LEAD_ACTION_ID,
+  LEAD_BLOCK_ID,
+} from "../src/slack/editModal.js";
 import { slackSignedHeaders } from "./support/slackSignature.js";
 
 const SECRET = "signing-secret";
@@ -23,6 +34,7 @@ const FORM_ENCODED = { "content-type": "application/x-www-form-urlencoded" };
 const env: NodeJS.ProcessEnv = {
   SLACK_SIGNING_SECRET: SECRET,
   AMPLIFIER_PUBLIC_URL: BASE,
+  SLACK_BOT_TOKEN: "xoxb-1",
 };
 
 /**
@@ -168,5 +180,149 @@ describe("POST /slack/interactivity", () => {
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "invalid signature" });
     expect(started).toEqual([]);
+  });
+});
+
+describe("POST /slack/interactivity, editing", () => {
+  const editClick = {
+    type: "block_actions",
+    actions: [{ action_id: EDIT_ACTION_ID, value: "amplifier:note:1" }],
+    trigger_id: "trigger-1",
+    channel: { id: "C1" },
+    user: { id: USER },
+    response_url: "https://hooks.slack.com/actions/T/1/2",
+    message: {
+      ts: "17580000.001",
+      text: "Old summary",
+      blocks: [section("Old summary 🧵"), noteActions("social", "amplifier:note:1")],
+    },
+  };
+  const submission = {
+    type: "view_submission",
+    user: { id: USER },
+    view: {
+      callback_id: EDIT_CALLBACK_ID,
+      private_metadata: encodeMeta({
+        channel: "C1",
+        messageTs: "17580000.001",
+        noteKey: "amplifier:note:1",
+        responseUrl: "https://hooks.slack.com/actions/T/1/2",
+      }),
+      state: {
+        values: { [LEAD_BLOCK_ID]: { [LEAD_ACTION_ID]: { value: "  Shifra's title  " } } },
+      },
+    },
+  };
+
+  /** Records every Slack Web API call the receiver makes. */
+  function slackCalls(body: Record<string, unknown> = { ok: true }) {
+    const calls: { url: string; form: URLSearchParams }[] = [];
+    const fetchImpl = (async (url: string, init: { body: string }) => {
+      calls.push({ url, form: new URLSearchParams(init.body) });
+      return { ok: true, status: 200, json: async () => body, text: async () => "" };
+    }) as any;
+    return { calls, fetchImpl };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("opens the modal prefilled with the note's current text", async () => {
+    const { dispatcher, started } = recordingDispatcher();
+    const { calls, fetchImpl } = slackCalls();
+    vi.stubGlobal("fetch", fetchImpl);
+    const body = clickBody(editClick);
+
+    const res = await interactivity(dispatcher, body, {
+      ...FORM_ENCODED,
+      ...slackSignedHeaders(body, SECRET, TIMESTAMP),
+    });
+
+    expect(res.status).toBe(200);
+    expect(calls[0]?.url).toContain("/views.open");
+    expect(calls[0]?.form.get("trigger_id")).toBe("trigger-1");
+    const view = JSON.parse(calls[0]?.form.get("view") ?? "{}");
+    expect(view.blocks[0].element.initial_value).toBe("Old summary");
+    expect(started).toEqual([]);
+  });
+
+  it("starts no repost for an Edit click", async () => {
+    const { dispatcher, started } = recordingDispatcher();
+    const { fetchImpl } = slackCalls();
+    vi.stubGlobal("fetch", fetchImpl);
+    const body = clickBody(editClick);
+
+    await interactivity(dispatcher, body, {
+      ...FORM_ENCODED,
+      ...slackSignedHeaders(body, SECRET, TIMESTAMP),
+    });
+
+    expect(started).toEqual([]);
+  });
+
+  it("starts the edit with the trimmed text and closes the modal", async () => {
+    const { dispatcher, started } = recordingDispatcher();
+    const body = clickBody(submission);
+
+    const res = await interactivity(dispatcher, body, {
+      ...FORM_ENCODED,
+      ...slackSignedHeaders(body, SECRET, TIMESTAMP),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({});
+    expect(started).toEqual([
+      {
+        task: "amplifier.editNote",
+        args: [
+          {
+            channel: "C1",
+            messageTs: "17580000.001",
+            noteKey: "amplifier:note:1",
+            responseUrl: "https://hooks.slack.com/actions/T/1/2",
+            lead: "Shifra's title",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("answers a blank edit with a field error and starts nothing", async () => {
+    const { dispatcher, started } = recordingDispatcher();
+    const blank = {
+      ...submission,
+      view: {
+        ...submission.view,
+        state: { values: { [LEAD_BLOCK_ID]: { [LEAD_ACTION_ID]: { value: "   " } } } },
+      },
+    };
+    const body = clickBody(blank);
+
+    const res = await interactivity(dispatcher, body, {
+      ...FORM_ENCODED,
+      ...slackSignedHeaders(body, SECRET, TIMESTAMP),
+    });
+
+    expect(await res.json()).toEqual({
+      response_action: "errors",
+      errors: { [LEAD_BLOCK_ID]: "Write the note's text." },
+    });
+    expect(started).toEqual([]);
+  });
+
+  it("tells the clicker when Slack will not open the modal", async () => {
+    const { dispatcher } = recordingDispatcher();
+    const { calls, fetchImpl } = slackCalls({ ok: false, error: "expired_trigger_id" });
+    vi.stubGlobal("fetch", fetchImpl);
+    const body = clickBody(editClick);
+
+    await interactivity(dispatcher, body, {
+      ...FORM_ENCODED,
+      ...slackSignedHeaders(body, SECRET, TIMESTAMP),
+    });
+
+    const answered = calls.find((c) => c.url.startsWith("https://hooks.slack.com"));
+    expect(answered).toBeDefined();
   });
 });
