@@ -33,11 +33,10 @@ describe("encodeMeta and decodeMeta", () => {
 });
 
 describe("editView", () => {
-  const view = editView(META, "Old summary") as Record<string, any>;
+  const view = editView(META, "Old summary");
 
   it("is a modal the receiver can recognize on submit", () => {
-    expect(view["type"]).toBe("modal");
-    expect(view["callback_id"]).toBe(EDIT_CALLBACK_ID);
+    expect(view).toMatchObject({ type: "modal", callback_id: EDIT_CALLBACK_ID });
   });
 
   it("carries the note it is editing, so the submission needs no lookup", () => {
@@ -45,15 +44,18 @@ describe("editView", () => {
   });
 
   it("prefills the current lead line, so an edit is not a retype", () => {
-    const input = view["blocks"][0];
-    expect(input["block_id"]).toBe(LEAD_BLOCK_ID);
-    expect(input["element"]["action_id"]).toBe(LEAD_ACTION_ID);
-    expect(input["element"]["initial_value"]).toBe("Old summary");
-    expect(input["element"]["multiline"]).toBe(true);
+    expect(view).toMatchObject({
+      blocks: [
+        {
+          block_id: LEAD_BLOCK_ID,
+          element: { action_id: LEAD_ACTION_ID, initial_value: "Old summary", multiline: true },
+        },
+      ],
+    });
   });
 
   it("caps the input under Slack's section-block limit", () => {
     expect(MAX_LEAD_LENGTH).toBeLessThan(3000);
-    expect(view["blocks"][0]["element"]["max_length"]).toBe(MAX_LEAD_LENGTH);
+    expect(view).toMatchObject({ blocks: [{ element: { max_length: MAX_LEAD_LENGTH } }] });
   });
 });
