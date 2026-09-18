@@ -1,9 +1,9 @@
 import { createHmac } from "node:crypto";
+import type { SlackBlock } from "@render-lab/tasks-slack";
 import { isFresh, timingSafeEquals } from "../http/signature.js";
 import { nonEmptyString } from "../json.js";
-import type { SlackBlock } from "@render-lab/tasks-slack";
-import { EDIT_ACTION_ID, REPOST_ACTION_ID } from "../amplifier/template.js";
 import { leadOf } from "../amplifier/lead.js";
+import { EDIT_ACTION_ID, REPOST_ACTION_ID } from "../amplifier/template.js";
 import {
   decodeMeta,
   EDIT_CALLBACK_ID,
@@ -170,8 +170,10 @@ export function parseEditSubmit(payload: unknown): EditSubmit | null {
     return null;
   }
 
-  const values = (view["state"] as Record<string, unknown> | undefined)?.["values"] as
-    Record<string, Record<string, { value?: unknown }>> | undefined;
-  const lead = values?.[LEAD_BLOCK_ID]?.[LEAD_ACTION_ID]?.value;
+  const state = view["state"] as Record<string, unknown> | undefined;
+  const values = state?.["values"] as Record<string, unknown> | undefined;
+  const block = values?.[LEAD_BLOCK_ID] as Record<string, unknown> | undefined;
+  const input = block?.[LEAD_ACTION_ID] as { value?: unknown } | undefined;
+  const lead = input?.value;
   return { meta, lead: typeof lead === "string" ? lead : "" };
 }

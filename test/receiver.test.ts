@@ -220,7 +220,7 @@ describe("POST /slack/interactivity, editing", () => {
     const fetchImpl = (async (url: string, init: { body: string }) => {
       calls.push({ url, form: new URLSearchParams(init.body) });
       return { ok: true, status: 200, json: async () => body, text: async () => "" };
-    }) as any;
+    }) as unknown as typeof fetch;
     return { calls, fetchImpl };
   }
 

@@ -41,9 +41,9 @@ function handlers(overrides: TaskHandlers = {}): TaskHandlers {
 function recordingFetch() {
   const said: string[] = [];
   const fetchImpl = (async (_url: string, init: { body: string }) => {
-    said.push(JSON.parse(init.body).text);
+    said.push((JSON.parse(init.body) as { text: string }).text);
     return { ok: true, status: 200, text: async () => "" };
-  }) as any;
+  }) as unknown as typeof fetch;
   return { said, fetchImpl };
 }
 
