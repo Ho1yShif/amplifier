@@ -110,13 +110,9 @@ export interface EditClick {
 /**
  * Read an Edit click out of an interactivity payload, or null.
  *
- * The button rides in the note's own actions block, so the clicked message is
- * the note: no thread walk, and no check that the click came from the queue
- * channel, because no other message carries the button.
- *
- * The prefill falls back to the message's `text`, which `renderParent` sets to
- * the lead line. A note whose blocks cannot be read still opens an editable
- * modal rather than a dead button.
+ * Only a note carries the button, so the clicked message is the note and there
+ * is no thread to walk. The prefill falls back to the message's `text`, which
+ * `renderParent` sets to the lead line.
  */
 export function parseEditClick(payload: unknown): EditClick | null {
   if (typeof payload !== "object" || payload === null) return null;
@@ -150,12 +146,7 @@ export interface EditSubmit {
   lead: string;
 }
 
-/**
- * Read a submitted edit modal, or null when the payload is not one.
- *
- * The note comes out of `private_metadata` and not out of a lookup, so a
- * submission needs no state kept since the modal opened.
- */
+/** Read a submitted edit modal, or null. The note comes out of `private_metadata`. */
 export function parseEditSubmit(payload: unknown): EditSubmit | null {
   if (typeof payload !== "object" || payload === null) return null;
   const p = payload as Record<string, unknown>;

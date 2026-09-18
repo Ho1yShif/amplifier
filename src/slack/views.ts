@@ -5,12 +5,9 @@ import type { SlackView } from "./editModal.js";
 /**
  * Open a modal on a `trigger_id`.
  *
- * Called from the HTTP handler and not from a task. Slack gives an
- * interactivity request three seconds and a `trigger_id` is spent within
- * three, so starting a workflow run first would spend the budget before the
- * modal opened.
- *
- * `view` is sent as a JSON string, because `callSlack` posts form-encoded.
+ * Called from the HTTP handler, because a `trigger_id` expires in three seconds
+ * and starting a workflow run first would spend that budget. `view` is a JSON
+ * string, because `callSlack` posts form-encoded.
  */
 export async function openView(
   triggerId: string,

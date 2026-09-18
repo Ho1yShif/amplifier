@@ -20,14 +20,11 @@ export type UpdateNoteResult = { updated: true } | { updated: false; error: stri
  * Raw implementation of amplifier.updateNote.
  *
  * `@render-lab/tasks-slack` 0.3.0 wraps no `chat.update`, so this goes through
- * `callSlack` and keeps SLACK_API_BASE_URL pointing it at the local stub.
+ * `callSlack` with the bot token. `chat.update` only rewrites a message the
+ * calling token authored, and the bot posted the note.
  *
- * The bot token, not the editor's. The bot posted the note, and `chat.update`
- * only rewrites a message the calling token authored.
- *
- * An `ok: false` body is returned rather than thrown, matching
- * `amplifier.messageLink`: `message_not_found` is an answer about one message,
- * and the editor is told it instead of watching the run retry.
+ * An `ok: false` body is returned instead of thrown, matching
+ * `amplifier.messageLink`, so the editor hears `message_not_found` at once.
  */
 export async function updateNoteImpl(
   _ctx: TaskContext,

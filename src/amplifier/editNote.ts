@@ -37,14 +37,12 @@ export interface EditNoteDeps {
 /**
  * Raw implementation of amplifier.editNote.
  *
- * Both the note in the channel and the stored copy have to change. The Repost
- * button posts the stored copy, so editing one without the other makes the
- * repost disagree with the channel.
+ * The note in the channel and the stored copy the Repost button posts both
+ * change, so a repost carries what the channel shows.
  *
- * Slack first, Key Value second. A refused `chat.update` leaves both sides on
- * the old text, which is a state the editor can retry from. A failed store
- * throws and EDIT_RETRY re-runs the task: `chat.update` writes the same message
- * again and the store writes the same record again, so neither repeats badly.
+ * Slack first, Key Value second. A refused `chat.update` leaves both on the old
+ * text, which the editor can retry from. A failed store throws and EDIT_RETRY
+ * re-runs both writes, which repeat harmlessly.
  */
 export async function editNoteImpl(
   ctx: TaskContext,

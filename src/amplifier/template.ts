@@ -12,6 +12,9 @@ export const DEFAULT_CALL_TO_ACTION =
 /** The `action_id` the receiver matches to tell the Repost button from any other block action. */
 export const REPOST_ACTION_ID = "amplifier_repost";
 
+/** The `action_id` that tells an Edit click from a Repost click. */
+export const EDIT_ACTION_ID = "amplifier_edit";
+
 /** Marks the parent of a thread whose links are replies. */
 export const THREAD_MARKER = " 🧵";
 
@@ -103,9 +106,6 @@ export function section(text: string): SlackBlock {
   return { type: "section", text: { type: "mrkdwn", text } };
 }
 
-/** The `action_id` the receiver matches to tell an Edit click from a Repost click. */
-export const EDIT_ACTION_ID = "amplifier_edit";
-
 /**
  * The Repost button.
  *
@@ -122,12 +122,7 @@ function repostElement(repostChannel: string, noteKey: string): SlackJsonValue {
   };
 }
 
-/**
- * The Edit button, which opens the modal that rewrites the note's lead line.
- *
- * It carries the same note key as Repost, because the edit rewrites the same
- * stored record the repost posts.
- */
+/** The Edit button, carrying the same note key as Repost, which the edit rewrites. */
 function editElement(noteKey: string): SlackJsonValue {
   return {
     type: "button",
@@ -143,11 +138,10 @@ export function repostBlock(repostChannel: string, noteKey: string): SlackBlock 
 }
 
 /**
- * A note's actions block: repost it, or fix its text first.
+ * A note's actions block, holding Repost and Edit.
  *
- * Only the note gets Edit. The reminder is a reply whose text is the
- * reminder's own, so `chat.update` from an Edit click there would rewrite the
- * reminder instead of the note.
+ * Only a note gets Edit. The reminder is a reply carrying its own text, so an
+ * Edit click there would rewrite the reminder.
  */
 export function noteActions(repostChannel: string, noteKey: string): SlackBlock {
   return {

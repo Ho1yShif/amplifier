@@ -65,11 +65,10 @@ export function buildReceiver(opts: ReceiverOptions): Hono {
    * Act on a verified interactivity payload: a Repost click, an Edit click, or
    * a submitted edit modal.
    *
-   * Answers 200 before the dispatch, because Slack's interactivity budget is
-   * three seconds and starting a workflow run is slower than that. Everything
-   * the clicker needs to hear afterwards arrives through `response_url`. The
-   * one exception is `views.open`, which spends a `trigger_id` that expires
-   * inside the same three seconds.
+   * Answers 200 before the dispatch, because Slack's budget is three seconds
+   * and starting a run is slower. The clicker hears the rest through
+   * `response_url`. `views.open` is the exception, spending a `trigger_id` that
+   * expires inside those same three seconds.
    */
   app.post(
     "/slack/interactivity",

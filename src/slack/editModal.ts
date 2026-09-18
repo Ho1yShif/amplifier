@@ -8,13 +8,7 @@ export const EDIT_CALLBACK_ID = "amplifier_edit_note";
 export const LEAD_BLOCK_ID = "amplifier_edit_lead";
 export const LEAD_ACTION_ID = "amplifier_edit_lead_input";
 
-/**
- * Longest lead line the modal accepts.
- *
- * A Slack section block holds 3000 characters, and the lead shares that block
- * with the quoted preview, the links and the dropped-platform line, so the
- * input stops well short of the block's limit.
- */
+/** Longest lead the modal accepts. The 3000-character section block holds the links too. */
 export const MAX_LEAD_LENGTH = 2000;
 
 /** A Block Kit view, which has no type in `@render-lab/tasks-slack` 0.3.0. */
@@ -29,22 +23,15 @@ export interface EditMeta {
   /** Key Value key of the stored note, from the Edit button's `value`. */
   noteKey: string;
   /**
-   * The Edit click's `response_url`.
+   * The Edit click's `response_url`, kept because a `view_submission` has none.
    *
-   * A `view_submission` carries none of its own, so the click's is kept here
-   * and the confirmation goes back through `respondEphemeral`, the way a
-   * Repost click is answered. Slack keeps one of these alive for 30 minutes,
-   * so a modal left open longer loses its confirmation and nothing else.
+   * Slack keeps one alive for 30 minutes, so a modal left open longer loses its
+   * confirmation and nothing else.
    */
   responseUrl: string;
 }
 
-/**
- * The modal's `private_metadata`.
- *
- * Slack hands this back on submit untouched, so the submission names its note
- * without the receiver keeping any state between the two requests.
- */
+/** The modal's `private_metadata`. Slack hands it back on submit, so nothing is kept in memory. */
 export function encodeMeta(meta: EditMeta): string {
   return JSON.stringify(meta);
 }
@@ -71,9 +58,7 @@ export function decodeMeta(value: unknown): EditMeta | null {
 /**
  * The edit modal, prefilled with the note's current lead line.
  *
- * One input, because the links are thread replies and the dropped-platform line
- * is the run's record of what Typefully published. The hint says so, so nobody
- * opens this looking for the links.
+ * One input, because the links are thread replies. The hint says so.
  */
 export function editView(meta: EditMeta, lead: string): SlackView {
   return {

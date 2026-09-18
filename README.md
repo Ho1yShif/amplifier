@@ -55,11 +55,11 @@ Typefully posts to the `amplifier-webhook` service when a draft publishes. The r
 
 `amplifier.postNote` wraps the vendor's `postMessageImpl` and adds `unfurl_links: false`, `unfurl_media: false` and, on a reply, `thread_ts` to the request body. `@render-lab/tasks-slack` 0.3.0 sends none of them and exposes no option for them. The wrapper can go away once the vendor does.
 
-Every note carries a Repost button. A cross-post is a thread: the parent carries the summary line and the 🧵, and each platform link is a reply.
+Every note carries a Repost button and an Edit button. A cross-post is a thread: the parent carries the summary line and the 🧵, and each platform link is a reply.
 
 ```
 Cursor Origin is now a supported Git provider on Render. Help spread the word 🧵
-[ Repost to #amplify-wider ]
+[ Repost to #amplify-wider ] [ Edit ]
   └ <https://linkedin.com/…|LinkedIn post>
   └ <https://x.com/…|X post>
 ```
@@ -70,7 +70,7 @@ A post that only went out on one platform is one flat message, with no thread an
 Please like/share our new customer story for OpenAI
 
 <https://x.com/…|X post>
-[ Repost to #amplify-wider ]
+[ Repost to #amplify-wider ] [ Edit ]
 ```
 
 When the summary call fails, the note still goes out. The parent opens with `AMPLIFIER_CALL_TO_ACTION`, names the reason, and quotes the draft preview.
@@ -161,7 +161,7 @@ region Oregon, built from `main`.
    | `amplifier-workflow` | `RENDER_API_KEY`          | The same key, for the repost reminder's own run        |
    | `amplifier-workflow` | `WORKFLOW_SLUG`           | The slug from step 2, for the same reason              |
 
-   For Slack, add `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`. Both are required. To turn the Repost button on, also add `AMPLIFIER_REPOST_CHANNEL`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` and `SLACK_SIGNING_SECRET` to `amplifier-workflow`, and `SLACK_CLIENT_ID` and `SLACK_SIGNING_SECRET` to `amplifier-triggers`. All four Slack values are on the app's Basic Information page. `AMPLIFIER_PUBLIC_URL` comes later, in step 6, because it is the receiver's own URL. See [Reposting](#reposting).
+   For Slack, add `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`. Both are required. To turn the Repost button on, also add `AMPLIFIER_REPOST_CHANNEL`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` and `SLACK_SIGNING_SECRET` to `amplifier-workflow`, and `SLACK_CLIENT_ID` and `SLACK_SIGNING_SECRET` to `amplifier-triggers`. All four Slack values are on the app's Basic Information page. `AMPLIFIER_PUBLIC_URL` comes later, in step 6, because it is the receiver's own URL. The Edit button also needs `SLACK_BOT_TOKEN` in `amplifier-triggers`, because the receiver opens the edit box itself. See [Reposting](#reposting) and [Editing a note](#editing-a-note).
 
    `NOTION_TOKEN` is only needed for the owner DMs; leave it out if you only want the announce path. See [Pinging a launch's owners](#pinging-a-launchs-owners).
 
@@ -435,8 +435,8 @@ Copy these into the env groups in deployment step 4:
 - **`SLACK_CHANNEL`** is the channel the notes go to. Goes in `amplifier-workflow`. The
   leading `#` is optional. If the production channel is busy, use a test channel first.
 - **`SLACK_SIGNING_SECRET`** is on **Basic Information**. Goes in both groups, with the same
-  value. The receiver verifies Repost clicks with it, and `amplifier.repost` signs the
-  authorize link's `state` with it.
+  value. The receiver verifies Repost clicks, Edit clicks and saved edits with it, and
+  `amplifier.repost` signs the authorize link's `state` with it.
 - **`SLACK_CLIENT_ID`** and **`SLACK_CLIENT_SECRET`** are on **Basic Information** too.
   The id goes in both groups; the secret goes in `amplifier-workflow` only, because
   `amplifier.saveUserToken` is the only thing that reads it.
@@ -464,7 +464,8 @@ host.
 
 1. Open the app at <https://api.slack.com/apps> and go to **Interactivity & Shortcuts**.
    Turn **Interactivity** on, set **Request URL** to `<receiver>/slack/interactivity`, and
-   click **Save Changes**. This is the URL Slack posts to when someone clicks Repost.
+   click **Save Changes**. This is the URL Slack posts to when someone clicks Repost or Edit,
+   and when someone saves an edit.
 2. Go to **OAuth & Permissions > Redirect URLs**, click **Add New Redirect URL**, enter
    `<receiver>/slack/oauth/callback`, then click **Add** and **Save URLs**. Slack compares
    this against the redirect on the authorize link character for character, so use https
@@ -565,20 +566,22 @@ Unset `AMPLIFIER_REPOST_CHANNEL` to turn all of this off: no button, no stored n
 
 ## Editing a note
 
-Every note carries an **Edit** button next to Repost. Clicking it opens a box holding the
-note's current text.
+A note that carries a Repost button carries an **Edit** button beside it. Clicking Edit opens a
+box holding the note's current text.
 
-Saving rewrites the note in the channel and the copy the Repost button posts. Slack marks
+Saving rewrites the note in the channel and the stored copy the Repost button posts. Slack marks
 the note as edited.
 
-The links cannot be edited here. They come from Typefully.
+The links come from Typefully and cannot be edited here.
 
-Editing a note that was already reposted changes the note in the queue channel only. The
+Editing a note that was already reposted changes the note in the source channel only. The
 reposted copy stays as it went out, and the confirmation says so.
 
 Notes posted before this shipped carry no Edit button.
 
-Editing needs no Slack app change and no reinstall. The button needs only a deploy.
+The receiver needs `SLACK_BOT_TOKEN` in `amplifier-triggers`, because it opens the box itself. A
+Slack `trigger_id` expires in three seconds, which is too little to start a workflow run first.
+Editing needs no Slack app change and no reinstall.
 
 ## Repost reminders
 
@@ -786,6 +789,7 @@ The table above covers the Workflow service. These variables belong to the `ampl
 | `TYPEFULLY_WEBHOOK_SECRET` | —                     | —     | Required. The signing secret from Typefully, Settings > API. Unset means every delivery gets a 401.                                               |
 | `SLACK_SIGNING_SECRET`     | —                     | —     | Verifies Repost clicks and signs the OAuth `state`. Unset means every Slack request gets a 401.                                                   |
 | `SLACK_CLIENT_ID`          | —                     | —     | Builds the authorize link. The client secret does not belong here.                                                                                |
+| `SLACK_BOT_TOKEN`          | —                     | —     | Required for the Edit button. The receiver opens the edit box itself, on a `trigger_id` that expires in three seconds.                            |
 | `AMPLIFIER_PUBLIC_URL`     | `RENDER_EXTERNAL_URL` | —     | The receiver's own base URL, used to build the OAuth redirect. Only needed locally.                                                               |
 | `PORT`                     | `3000`                | —     | Render sets this. Only needed to run the receiver locally.                                                                                        |
 
